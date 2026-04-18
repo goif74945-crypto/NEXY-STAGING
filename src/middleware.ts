@@ -1,1 +1,5 @@
-export const middlewareProbe = true;
+import { NextResponse } from 'next/server';
+
+export function middleware() {
+  return NextResponse.next();
+}
