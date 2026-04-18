@@ -1,0 +1,131 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SessionRole {
+  VIEWER
+  OPERATOR
+  OWNER
+}
+
+enum RunStatus {
+  PENDING
+  RUNNING
+  STABLE
+  FROZEN
+  FAILED
+  KILLED
+}
+
+enum ArtifactStatus {
+  RAW
+  CLEAN
+  FINAL
+  REJECT
+}
+
+enum IncidentStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  displayName  String?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  devices      Device[]
+  sessions     Session[]
+  runs         Run[]
+  incidents    Incident[] @relation("ReporterIncidents")
+}
+
+model Device {
+  id          String    @id @default(cuid())
+  userId      String
+  deviceId    String    @unique
+  label       String?
+  platform    String?
+  lastSeenAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions    Session[]
+
+  @@index([userId])
+}
+
+model Session {
+  id             String       @id @default(cuid())
+  userId         String
+  deviceId       String
+  role           SessionRole  @default(VIEWER)
+  tokenHash      String       @unique
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  revokeReason   String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device         Device       @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([deviceId])
+  @@index([expiresAt])
+}
+
+model Run {
+  id            String         @id @default(cuid())
+  userId        String
+  directive     String
+  status        RunStatus      @default(PENDING)
+  accepted      Boolean        @default(false)
+  releaseable   Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  artifacts     Artifact[]
+  incidents     Incident[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Artifact {
+  id            String         @id @default(cuid())
+  runId         String
+  outputClass   ArtifactStatus @default(RAW)
+  content       String
+  isLocked      Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  run           Run            @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([outputClass])
+}
+
+model Incident {
+  id            String         @id @default(cuid())
+  runId         String?
+  reportedById  String?
+  title         String
+  detail        String
+  status        IncidentStatus @default(OPEN)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  run           Run?           @relation(fields: [runId], references: [id], onDelete: SetNull)
+  reportedBy    User?          @relation("ReporterIncidents", fields: [reportedById], references: [id], onDelete: SetNull)
+
+  @@index([runId])
+  @@index([reportedById])
+  @@index([status])
+}
