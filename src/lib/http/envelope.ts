@@ -18,57 +18,63 @@ export type TraceId = z.infer<typeof TraceIdSchema>;
 export const CorrelationIdSchema = z.string().trim().min(1).max(128);
 export type CorrelationId = z.infer<typeof CorrelationIdSchema>;
 
-export const VersionSchema = z.string().trim().min(1).max(64);
-export type Version = z.infer<typeof VersionSchema>;
+export const EnvelopeVersionSchema = z.string().trim().min(1).max(64);
+export type EnvelopeVersion = z.infer<typeof EnvelopeVersionSchema>;
 
-export const WarningCodeSchema = z.string().trim().min(1).max(128);
-export type WarningCode = z.infer<typeof WarningCodeSchema>;
+export const EnvelopeWarningCodeSchema = z.string().trim().min(1).max(128);
+export type EnvelopeWarningCode = z.infer<typeof EnvelopeWarningCodeSchema>;
 
-export const WarningSourceSchema = z.string().trim().min(1).max(128);
-export type WarningSource = z.infer<typeof WarningSourceSchema>;
+export const EnvelopeWarningSourceSchema = z.string().trim().min(1).max(128);
+export type EnvelopeWarningSource = z.infer<typeof EnvelopeWarningSourceSchema>;
 
-export const WarningSchema = z
+export const EnvelopeWarningSchema = z
   .object({
-    code: WarningCodeSchema,
+    code: EnvelopeWarningCodeSchema,
     message: z.string().trim().min(1).max(4096),
-    source: WarningSourceSchema,
+    source: EnvelopeWarningSourceSchema,
+    recoverable: z.boolean(),
   })
   .strict();
-export type Warning = z.infer<typeof WarningSchema>;
+export type EnvelopeWarning = z.infer<typeof EnvelopeWarningSchema>;
 
-export const BodyHashSchema = z
+export const EnvelopeBodyHashSchema = z
   .string()
   .trim()
   .regex(/^(?:sha256:)?[A-Fa-f0-9]{64}$/, 'body_hash must be a SHA-256 digest.');
-export type BodyHash = z.infer<typeof BodyHashSchema>;
+export type EnvelopeBodyHash = z.infer<typeof EnvelopeBodyHashSchema>;
 
-export const SchemaVersionSchema = z.string().trim().min(1).max(64);
-export type SchemaVersion = z.infer<typeof SchemaVersionSchema>;
+export const EnvelopeSchemaVersionSchema = z.string().trim().min(1).max(64);
+export type EnvelopeSchemaVersion = z.infer<typeof EnvelopeSchemaVersionSchema>;
 
-export const IntegritySchema = z
+export const EnvelopeIntegritySchema = z
   .object({
-    body_hash: BodyHashSchema,
-    schema_version: SchemaVersionSchema,
+    body_hash: EnvelopeBodyHashSchema,
+    schema_version: EnvelopeSchemaVersionSchema,
   })
   .strict();
-export type Integrity = z.infer<typeof IntegritySchema>;
+export type EnvelopeIntegrity = z.infer<typeof EnvelopeIntegritySchema>;
 
-export interface SystemEnvelope<T> {
-  status: z.infer<typeof SystemStatusSchema>;
-  state: z.infer<typeof SystemStateSchema>;
-  timestamp: z.infer<typeof TimestampIsoSchema>;
-  request_id: RequestId;
-  trace_id: TraceId;
-  correlation_id?: CorrelationId;
-  version: Version;
-  duration_ms?: number;
-  actor?: z.infer<typeof ActorRefSchema>;
-  data?: T;
-  error?: z.infer<typeof ErrorInfoSchema>;
-  freeze_reason?: z.infer<typeof FreezeReasonSchema>;
-  warnings?: Warning[];
-  integrity?: Integrity;
-}
+export const EnvelopeMetaSchema = z
+  .object({
+    request_id: RequestIdSchema,
+    trace_id: TraceIdSchema,
+    correlation_id: CorrelationIdSchema.optional(),
+    version: EnvelopeVersionSchema,
+    duration_ms: z.number().finite().nonnegative().optional(),
+    actor: ActorRefSchema.optional(),
+    integrity: EnvelopeIntegritySchema.optional(),
+  })
+  .strict();
+export type EnvelopeMeta = z.infer<typeof EnvelopeMetaSchema>;
+
+export const EnvelopeRequestContextSchema = z
+  .object({
+    request_id: RequestIdSchema,
+    trace_id: TraceIdSchema,
+    correlation_id: CorrelationIdSchema.optional(),
+  })
+  .strict();
+export type EnvelopeRequestContext = z.infer<typeof EnvelopeRequestContextSchema>;
 
 export const makeSystemEnvelopeSchema = <TData extends z.ZodTypeAny>(dataSchema: TData) =>
   z
@@ -79,42 +85,57 @@ export const makeSystemEnvelopeSchema = <TData extends z.ZodTypeAny>(dataSchema:
       request_id: RequestIdSchema,
       trace_id: TraceIdSchema,
       correlation_id: CorrelationIdSchema.optional(),
-      version: VersionSchema,
+      version: EnvelopeVersionSchema,
       duration_ms: z.number().finite().nonnegative().optional(),
       actor: ActorRefSchema.optional(),
       data: dataSchema.optional(),
       error: ErrorInfoSchema.optional(),
       freeze_reason: FreezeReasonSchema.optional(),
-      warnings: z.array(WarningSchema).optional(),
-      integrity: IntegritySchema.optional(),
+      warnings: z.array(EnvelopeWarningSchema).optional(),
+      integrity: EnvelopeIntegritySchema.optional(),
     })
     .strict();
+export type SystemEnvelopeSchema<TData extends z.ZodTypeAny> = ReturnType<
+  typeof makeSystemEnvelopeSchema<TData>
+>;
 
 export const UnknownSystemEnvelopeSchema = makeSystemEnvelopeSchema(z.unknown());
 export type UnknownSystemEnvelope = z.infer<typeof UnknownSystemEnvelopeSchema>;
 
-export function parseSystemEnvelope<TData extends z.ZodTypeAny>(
+export const makeCanonicalRequestEnvelopeSchema = <TPayload extends z.ZodTypeAny>(
+  payloadSchema: TPayload,
+) =>
+  z
+    .object({
+      context: EnvelopeRequestContextSchema,
+      payload: payloadSchema,
+    })
+    .strict();
+export type CanonicalRequestEnvelopeSchema<TPayload extends z.ZodTypeAny> = ReturnType<
+  typeof makeCanonicalRequestEnvelopeSchema<TPayload>
+>;
+
+export const makeCanonicalResponseEnvelopeSchema = <TData extends z.ZodTypeAny>(
+  dataSchema: TData,
+) => makeSystemEnvelopeSchema(dataSchema);
+export type CanonicalResponseEnvelopeSchema<TData extends z.ZodTypeAny> = ReturnType<
+  typeof makeCanonicalResponseEnvelopeSchema<TData>
+>;
+
+export const parseSystemEnvelope = <TData extends z.ZodTypeAny>(
   dataSchema: TData,
   input: unknown,
-): z.infer<ReturnType<typeof makeSystemEnvelopeSchema<TData>>> {
-  return makeSystemEnvelopeSchema(dataSchema).parse(input);
-}
+): z.infer<ReturnType<typeof makeSystemEnvelopeSchema<TData>>> =>
+  makeSystemEnvelopeSchema(dataSchema).parse(input);
 
-export function makeSystemEnvelope<TData>(input: SystemEnvelope<TData>): SystemEnvelope<TData> {
-  return {
-    status: input.status,
-    state: input.state,
-    timestamp: input.timestamp,
-    request_id: input.request_id,
-    trace_id: input.trace_id,
-    ...(input.correlation_id ? { correlation_id: input.correlation_id } : {}),
-    version: input.version,
-    ...(typeof input.duration_ms === 'number' ? { duration_ms: input.duration_ms } : {}),
-    ...(input.actor ? { actor: input.actor } : {}),
-    ...(input.data !== undefined ? { data: input.data } : {}),
-    ...(input.error ? { error: input.error } : {}),
-    ...(input.freeze_reason ? { freeze_reason: input.freeze_reason } : {}),
-    ...(input.warnings ? { warnings: input.warnings } : {}),
-    ...(input.integrity ? { integrity: input.integrity } : {}),
-  };
-}
+export const parseCanonicalRequestEnvelope = <TPayload extends z.ZodTypeAny>(
+  payloadSchema: TPayload,
+  input: unknown,
+): z.infer<ReturnType<typeof makeCanonicalRequestEnvelopeSchema<TPayload>>> =>
+  makeCanonicalRequestEnvelopeSchema(payloadSchema).parse(input);
+
+export const parseCanonicalResponseEnvelope = <TData extends z.ZodTypeAny>(
+  dataSchema: TData,
+  input: unknown,
+): z.infer<ReturnType<typeof makeCanonicalResponseEnvelopeSchema<TData>>> =>
+  makeCanonicalResponseEnvelopeSchema(dataSchema).parse(input);
