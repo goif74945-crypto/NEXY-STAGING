@@ -1,86 +1,84 @@
-type AppErrorInput = {
-  code: string;
-  message: string;
-  statusCode: number;
-  details?: Record<string, unknown>;
-};
+import { z } from 'zod';
 
-export class AppError extends Error {
-  public readonly code: string;
-  public readonly statusCode: number;
-  public readonly details?: Record<string, unknown>;
+export const ErrorCodeValues = [
+  'INVALID_DIRECTIVE',
+  'EMPTY_INPUT',
+  'AMBIGUOUS_INPUT',
+  'UNVERIFIED_OUTPUT',
+  'CONSENSUS_FAILED',
+  'EVIDENCE_MISSING',
+  'INSUFFICIENT_EVIDENCE',
+  'SCHEMA_VIOLATION',
+  'STATE_TRANSITION_DENIED',
+  'INVALID_STATE',
+  'AUTH_REQUIRED',
+  'AUTH_INVALID',
+  'AUTH_EXPIRED',
+  'SESSION_EXPIRED',
+  'UNAUTHORIZED',
+  'FORBIDDEN',
+  'SESSION_REVOKED',
+  'DEVICE_MISMATCH',
+  'DEVICE_BINDING_MISMATCH',
+  'CSRF_INVALID',
+  'OTAC_LOCKED',
+  'OTAC_EXPIRED',
+  'OTAC_ATTEMPTS_EXCEEDED',
+  'RATE_LIMIT_EXCEEDED',
+  'RESOURCE_LIMIT_EXCEEDED',
+  'SECURITY_BREACH_DETECTED',
+  'SYSTEM_IN_FREEZE',
+  'DEPENDENCY_FAILURE',
+  'DEPENDENCY_UNHEALTHY',
+  'TIMEOUT',
+  'AGENT_TIMEOUT',
+  'AGENT_SCHEMA_INVALID',
+  'FREEZE_RECOVERY_DENIED',
+  'VAULT_COMMIT_CONFLICT',
+  'REVISION_NOT_FOUND',
+  'REPOSITORY_FAILURE',
+  'PIPELINE_CAP_EXCEEDED',
+  'RELEASE_POLICY_FAILED',
+  'UNRELEASEABLE_OUTPUT',
+  'EXPORT_NOT_FOUND',
+  'INCIDENT_NOT_FOUND',
+  'UNKNOWN_INTERNAL_ERROR',
+] as const;
 
-  constructor(input: AppErrorInput) {
-    super(input.message);
-    this.name = 'AppError';
-    this.code = input.code;
-    this.statusCode = input.statusCode;
-    this.details = input.details;
-  }
+export const ErrorCodeSchema = z.enum(ErrorCodeValues);
+export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
+
+export const ErrorSourceSchema = z.string().trim().min(1).max(128);
+export type ErrorSource = z.infer<typeof ErrorSourceSchema>;
+
+export const ErrorMessageSchema = z.string().trim().min(1).max(4096);
+export type ErrorMessage = z.infer<typeof ErrorMessageSchema>;
+
+export const ErrorDetailsSchema = z.record(z.unknown());
+export type ErrorDetails = z.infer<typeof ErrorDetailsSchema>;
+
+export const ErrorInfoSchema = z
+  .object({
+    code: ErrorCodeSchema,
+    message: ErrorMessageSchema,
+    source: ErrorSourceSchema,
+    recoverable: z.boolean(),
+    details: ErrorDetailsSchema.optional(),
+  })
+  .strict();
+export type ErrorInfo = z.infer<typeof ErrorInfoSchema>;
+
+export const ErrorCodeSetSchema = z.array(ErrorCodeSchema);
+export type ErrorCodeSet = z.infer<typeof ErrorCodeSetSchema>;
+
+export function isErrorCode(value: unknown): value is ErrorCode {
+  return ErrorCodeSchema.safeParse(value).success;
 }
 
-export class ValidationAppError extends AppError {
-  constructor(details?: Record<string, unknown>) {
-    super({
-      code: 'VALIDATION_ERROR',
-      message: 'Request validation failed.',
-      statusCode: 400,
-      details,
-    });
-  }
+export function parseErrorCode(value: unknown): ErrorCode {
+  return ErrorCodeSchema.parse(value);
 }
 
-export class UnauthorizedAppError extends AppError {
-  constructor(details?: Record<string, unknown>) {
-    super({
-      code: 'UNAUTHORIZED',
-      message: 'Authentication is required.',
-      statusCode: 401,
-      details,
-    });
-  }
-}
-
-export class ForbiddenAppError extends AppError {
-  constructor(details?: Record<string, unknown>) {
-    super({
-      code: 'FORBIDDEN',
-      message: 'You do not have permission to perform this action.',
-      statusCode: 403,
-      details,
-    });
-  }
-}
-
-export class NotFoundAppError extends AppError {
-  constructor(details?: Record<string, unknown>) {
-    super({
-      code: 'NOT_FOUND',
-      message: 'Requested resource was not found.',
-      statusCode: 404,
-      details,
-    });
-  }
-}
-
-export class ConflictAppError extends AppError {
-  constructor(details?: Record<string, unknown>) {
-    super({
-      code: 'CONFLICT',
-      message: 'Resource state conflict detected.',
-      statusCode: 409,
-      details,
-    });
-  }
-}
-
-export class InternalAppError extends AppError {
-  constructor(details?: Record<string, unknown>) {
-    super({
-      code: 'INTERNAL_ERROR',
-      message: 'Unexpected internal server error.',
-      statusCode: 500,
-      details,
-    });
-  }
+export function parseErrorInfo(value: unknown): ErrorInfo {
+  return ErrorInfoSchema.parse(value);
 }
