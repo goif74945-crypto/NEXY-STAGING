@@ -1,38 +1,13 @@
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 
-const ISO_TIMESTAMP_PATTERN =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+\-]\d{2}:\d{2})$/;
-
-function parseIsoTimestampToMillis(label: string, value: string): number {
-  const parsed = Date.parse(value);
-
-  if (Number.isNaN(parsed)) {
-    throw new Error(`${label} must be a valid ISO timestamp.`);
-  }
-
-  return parsed;
+function createSha256Hex(input: string): string {
+  return createHash('sha256').update(input, 'utf8').digest('hex').toLowerCase();
 }
 
-function assertTimestampOrder(startLabel: string, start: string, endLabel: string, end: string): void {
-  const startMs = parseIsoTimestampToMillis(startLabel, start);
-  const endMs = parseIsoTimestampToMillis(endLabel, end);
-
-  if (endMs < startMs) {
-    throw new Error(`${endLabel} must be greater than or equal to ${startLabel}.`);
-  }
-}
-
-function normalizeHex(input: string): string {
-  return input.trim().toLowerCase();
-}
-
-function isSafeEqualHex(left: string, right: string): boolean {
-  const normalizedLeft = normalizeHex(left);
-  const normalizedRight = normalizeHex(right);
-
-  const leftBuffer = Buffer.from(normalizedLeft, 'utf8');
-  const rightBuffer = Buffer.from(normalizedRight, 'utf8');
+function safeEqualHex(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left, 'utf8');
+  const rightBuffer = Buffer.from(right, 'utf8');
 
   if (leftBuffer.length !== rightBuffer.length) {
     return false;
@@ -41,107 +16,75 @@ function isSafeEqualHex(left: string, right: string): boolean {
   return timingSafeEqual(leftBuffer, rightBuffer);
 }
 
-export const OtacEmailSchema = z.string().trim().email().max(320);
-export type OtacEmail = z.infer<typeof OtacEmailSchema>;
+export const OtacCodeSchema = z.string().trim().regex(/^\d{6}$/, 'OTAC code must be exactly 6 digits.');
+export type OtacCode = z.infer<typeof OtacCodeSchema>;
 
-export const OtacPurposeSchema = z.string().trim().min(1).max(128);
-export type OtacPurpose = z.infer<typeof OtacPurposeSchema>;
+export const OtacSubjectSchema = z.string().trim().min(1).max(256);
+export type OtacSubject = z.infer<typeof OtacSubjectSchema>;
+
+export const OtacNonceSchema = z.string().trim().min(1).max(256);
+export type OtacNonce = z.infer<typeof OtacNonceSchema>;
 
 export const OtacIdSchema = z.string().trim().min(1).max(128);
 export type OtacId = z.infer<typeof OtacIdSchema>;
 
-export const OtacSecretSchema = z.string().trim().min(1).max(512);
-export type OtacSecret = z.infer<typeof OtacSecretSchema>;
-
-export const OtacIssuedAtSchema = z.string().trim().regex(ISO_TIMESTAMP_PATTERN);
-export type OtacIssuedAt = z.infer<typeof OtacIssuedAtSchema>;
-
-export const OtacExpiresAtSchema = z.string().trim().regex(ISO_TIMESTAMP_PATTERN);
-export type OtacExpiresAt = z.infer<typeof OtacExpiresAtSchema>;
-
-export const OtacAttemptedAtSchema = z.string().trim().regex(ISO_TIMESTAMP_PATTERN);
-export type OtacAttemptedAt = z.infer<typeof OtacAttemptedAtSchema>;
-
-export const OtacCodeSchema = z
-  .string()
-  .trim()
-  .regex(/^\d{6}$/, 'OTAC code must be exactly 6 digits.');
-export type OtacCode = z.infer<typeof OtacCodeSchema>;
-
 export const OtacCodeHashSchema = z
   .string()
   .trim()
-  .regex(/^[a-f0-9]{64}$/, 'OTAC code hash must be a lower-case 64-char sha256 hex string.');
+  .regex(/^[a-f0-9]{64}$/, 'OTAC code hash must be lower-case sha256 hex.');
 export type OtacCodeHash = z.infer<typeof OtacCodeHashSchema>;
 
 export const OtacStatusSchema = z.enum(['active', 'consumed', 'expired']);
 export type OtacStatus = z.infer<typeof OtacStatusSchema>;
 
-export const OtacDerivationInputSchema = z
+export const OtacPolicySchema = z
   .object({
-    secret: OtacSecretSchema,
-    email: OtacEmailSchema,
-    purpose: OtacPurposeSchema,
-    issued_at: OtacIssuedAtSchema,
-    expires_at: OtacExpiresAtSchema,
+    issued_at_epoch_ms: z.number().int().nonnegative(),
+    expires_at_epoch_ms: z.number().int().nonnegative(),
+    max_attempts: z.number().int().positive(),
   })
   .strict()
   .superRefine((value, ctx) => {
-    try {
-      assertTimestampOrder('issued_at', value.issued_at, 'expires_at', value.expires_at);
-    } catch (error) {
+    if (value.expires_at_epoch_ms < value.issued_at_epoch_ms) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: error instanceof Error ? error.message : 'Invalid OTAC timestamp order.',
+        message: 'expires_at_epoch_ms must be greater than or equal to issued_at_epoch_ms.',
       });
     }
   });
-export type OtacDerivationInput = z.infer<typeof OtacDerivationInputSchema>;
+export type OtacPolicy = z.infer<typeof OtacPolicySchema>;
 
 export const OtacRecordSchema = z
   .object({
     otac_id: OtacIdSchema,
-    email: OtacEmailSchema,
-    purpose: OtacPurposeSchema,
-    issued_at: OtacIssuedAtSchema,
-    expires_at: OtacExpiresAtSchema,
+    subject: OtacSubjectSchema,
+    nonce: OtacNonceSchema,
+    policy: OtacPolicySchema,
     code_hash: OtacCodeHashSchema,
-    consumed_at: OtacAttemptedAtSchema.optional(),
+    attempts_used: z.number().int().nonnegative(),
     status: OtacStatusSchema,
+    consumed_at_epoch_ms: z.number().int().nonnegative().optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
-    try {
-      assertTimestampOrder('issued_at', value.issued_at, 'expires_at', value.expires_at);
-    } catch (error) {
+    if (value.attempts_used > value.policy.max_attempts) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: error instanceof Error ? error.message : 'Invalid OTAC record timestamp order.',
+        message: 'attempts_used cannot exceed policy.max_attempts.',
       });
     }
 
-    if (value.consumed_at) {
-      try {
-        assertTimestampOrder('issued_at', value.issued_at, 'consumed_at', value.consumed_at);
-      } catch (error) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: error instanceof Error ? error.message : 'Invalid OTAC consumed_at timestamp.',
-        });
-      }
-    }
-
-    if (value.status === 'consumed' && !value.consumed_at) {
+    if (value.status === 'consumed' && value.consumed_at_epoch_ms === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Consumed OTAC records must include consumed_at.',
+        message: 'consumed status requires consumed_at_epoch_ms.',
       });
     }
 
-    if (value.status !== 'consumed' && value.consumed_at) {
+    if (value.status !== 'consumed' && value.consumed_at_epoch_ms !== undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Only consumed OTAC records may include consumed_at.',
+        message: 'Only consumed records may include consumed_at_epoch_ms.',
       });
     }
   });
@@ -150,87 +93,105 @@ export type OtacRecord = z.infer<typeof OtacRecordSchema>;
 export const OtacCreateInputSchema = z
   .object({
     otac_id: OtacIdSchema,
-    derivation: OtacDerivationInputSchema,
+    subject: OtacSubjectSchema,
+    nonce: OtacNonceSchema,
+    code: OtacCodeSchema,
+    policy: OtacPolicySchema,
   })
   .strict();
 export type OtacCreateInput = z.infer<typeof OtacCreateInputSchema>;
 
-export const OtacVerifyInputSchema = z
+export const OtacAttemptInputSchema = z
   .object({
     record: OtacRecordSchema,
     code: OtacCodeSchema,
-    attempted_at: OtacAttemptedAtSchema,
+    current_epoch_ms: z.number().int().nonnegative(),
   })
   .strict();
-export type OtacVerifyInput = z.infer<typeof OtacVerifyInputSchema>;
+export type OtacAttemptInput = z.infer<typeof OtacAttemptInputSchema>;
 
 export const OtacVerificationResultSchema = z
   .object({
     accepted: z.boolean(),
-    status: OtacStatusSchema,
-    reason: z.enum(['verified', 'invalid_code', 'expired', 'already_consumed']),
+    reason: z.enum(['verified', 'invalid_code', 'expired', 'already_consumed', 'attempt_limit_reached']),
     next_record: OtacRecordSchema,
   })
   .strict();
 export type OtacVerificationResult = z.infer<typeof OtacVerificationResultSchema>;
 
-export function normalizeOtacEmail(input: unknown): OtacEmail {
-  return OtacEmailSchema.parse(z.string().parse(input).trim().toLowerCase());
-}
+export const OtacConsumeInputSchema = z
+  .object({
+    record: OtacRecordSchema,
+    consumed_at_epoch_ms: z.number().int().nonnegative(),
+  })
+  .strict();
+export type OtacConsumeInput = z.infer<typeof OtacConsumeInputSchema>;
 
 export function hashOtacCode(input: unknown): OtacCodeHash {
   const code = OtacCodeSchema.parse(input);
-  const digest = createHash('sha256').update(code, 'utf8').digest('hex');
-  return OtacCodeHashSchema.parse(digest);
+  return OtacCodeHashSchema.parse(createSha256Hex(code));
 }
 
-export function deriveOtacCode(input: unknown): OtacCode {
-  const parsed = OtacDerivationInputSchema.parse(input);
-  const canonical = [
-    parsed.secret,
-    normalizeOtacEmail(parsed.email),
-    parsed.purpose,
-    parsed.issued_at,
-    parsed.expires_at,
-  ].join('|');
+export function isOtacExpired(recordInput: unknown, currentEpochMsInput: unknown): boolean {
+  const record = OtacRecordSchema.parse(recordInput);
+  const current_epoch_ms = z.number().int().nonnegative().parse(currentEpochMsInput);
 
-  const digest = createHmac('sha256', parsed.secret).update(canonical, 'utf8').digest('hex');
-  const numeric = BigInt(`0x${digest}`) % 1_000_000n;
-  const code = numeric.toString().padStart(6, '0');
-
-  return OtacCodeSchema.parse(code);
+  return current_epoch_ms > record.policy.expires_at_epoch_ms || record.status === 'expired';
 }
 
 export function createOtacRecord(input: unknown): OtacRecord {
   const parsed = OtacCreateInputSchema.parse(input);
-  const code = deriveOtacCode(parsed.derivation);
 
   return OtacRecordSchema.parse({
     otac_id: parsed.otac_id,
-    email: normalizeOtacEmail(parsed.derivation.email),
-    purpose: parsed.derivation.purpose,
-    issued_at: parsed.derivation.issued_at,
-    expires_at: parsed.derivation.expires_at,
-    code_hash: hashOtacCode(code),
+    subject: parsed.subject,
+    nonce: parsed.nonce,
+    policy: parsed.policy,
+    code_hash: hashOtacCode(parsed.code),
+    attempts_used: 0,
     status: 'active',
   });
 }
 
-export function verifyOtac(input: unknown): OtacVerificationResult {
-  const parsed = OtacVerifyInputSchema.parse(input);
-  const attemptedAtMs = parseIsoTimestampToMillis('attempted_at', parsed.attempted_at);
-  const expiresAtMs = parseIsoTimestampToMillis('expires_at', parsed.record.expires_at);
+export function consumeOtacRecord(input: unknown): OtacRecord {
+  const parsed = OtacConsumeInputSchema.parse(input);
+
+  if (parsed.consumed_at_epoch_ms < parsed.record.policy.issued_at_epoch_ms) {
+    throw new Error('consumed_at_epoch_ms must be greater than or equal to policy.issued_at_epoch_ms.');
+  }
+
+  return OtacRecordSchema.parse({
+    ...parsed.record,
+    status: 'consumed',
+    consumed_at_epoch_ms: parsed.consumed_at_epoch_ms,
+  });
+}
+
+export function verifyOtacAttempt(input: unknown): OtacVerificationResult {
+  const parsed = OtacAttemptInputSchema.parse(input);
 
   if (parsed.record.status === 'consumed') {
     return OtacVerificationResultSchema.parse({
       accepted: false,
-      status: 'consumed',
       reason: 'already_consumed',
       next_record: parsed.record,
     });
   }
 
-  if (attemptedAtMs > expiresAtMs || parsed.record.status === 'expired') {
+  if (parsed.record.attempts_used >= parsed.record.policy.max_attempts) {
+    const exhaustedRecord = OtacRecordSchema.parse({
+      ...parsed.record,
+      status: 'expired',
+    });
+
+    return OtacVerificationResultSchema.parse({
+      accepted: false,
+      reason: 'attempt_limit_reached',
+      next_record: exhaustedRecord,
+    });
+  }
+
+  if (isOtacExpired(parsed.record, parsed.current_epoch_ms)) {
     const expiredRecord = OtacRecordSchema.parse({
       ...parsed.record,
       status: 'expired',
@@ -238,7 +199,6 @@ export function verifyOtac(input: unknown): OtacVerificationResult {
 
     return OtacVerificationResultSchema.parse({
       accepted: false,
-      status: 'expired',
       reason: 'expired',
       next_record: expiredRecord,
     });
@@ -246,41 +206,29 @@ export function verifyOtac(input: unknown): OtacVerificationResult {
 
   const presentedHash = hashOtacCode(parsed.code);
 
-  if (!isSafeEqualHex(parsed.record.code_hash, presentedHash)) {
+  if (!safeEqualHex(parsed.record.code_hash, presentedHash)) {
+    const incrementedRecord = OtacRecordSchema.parse({
+      ...parsed.record,
+      attempts_used: parsed.record.attempts_used + 1,
+    });
+
     return OtacVerificationResultSchema.parse({
       accepted: false,
-      status: 'active',
       reason: 'invalid_code',
-      next_record: parsed.record,
+      next_record: incrementedRecord,
     });
   }
 
-  const consumedRecord = OtacRecordSchema.parse({
-    ...parsed.record,
-    consumed_at: parsed.attempted_at,
-    status: 'consumed',
+  const consumedRecord = consumeOtacRecord({
+    record: parsed.record,
+    consumed_at_epoch_ms: parsed.current_epoch_ms,
   });
 
   return OtacVerificationResultSchema.parse({
     accepted: true,
-    status: 'consumed',
     reason: 'verified',
     next_record: consumedRecord,
   });
-}
-
-export function parseOtacEmail(input: unknown): OtacEmail {
-  return normalizeOtacEmail(input);
-}
-
-export function validateOtacEmail(input: unknown): boolean {
-  const raw = z.string().safeParse(input);
-
-  if (!raw.success) {
-    return false;
-  }
-
-  return OtacEmailSchema.safeParse(raw.data.trim().toLowerCase()).success;
 }
 
 export function parseOtacCode(input: unknown): OtacCode {
@@ -289,6 +237,30 @@ export function parseOtacCode(input: unknown): OtacCode {
 
 export function validateOtacCode(input: unknown): boolean {
   return OtacCodeSchema.safeParse(input).success;
+}
+
+export function parseOtacSubject(input: unknown): OtacSubject {
+  return OtacSubjectSchema.parse(input);
+}
+
+export function validateOtacSubject(input: unknown): boolean {
+  return OtacSubjectSchema.safeParse(input).success;
+}
+
+export function parseOtacNonce(input: unknown): OtacNonce {
+  return OtacNonceSchema.parse(input);
+}
+
+export function validateOtacNonce(input: unknown): boolean {
+  return OtacNonceSchema.safeParse(input).success;
+}
+
+export function parseOtacPolicy(input: unknown): OtacPolicy {
+  return OtacPolicySchema.parse(input);
+}
+
+export function validateOtacPolicy(input: unknown): boolean {
+  return OtacPolicySchema.safeParse(input).success;
 }
 
 export function parseOtacRecord(input: unknown): OtacRecord {
