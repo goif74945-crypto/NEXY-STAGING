@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
-const VERSION_SEGMENT_PATTERN = '(0|[1-9]\\d*)';
+const VERSION_PART_PATTERN = '(0|[1-9]\\d*)';
 const VERSION_PATTERN = new RegExp(
-  `^${VERSION_SEGMENT_PATTERN}\\.${VERSION_SEGMENT_PATTERN}\\.${VERSION_SEGMENT_PATTERN}$`,
+  `^${VERSION_PART_PATTERN}\\.${VERSION_PART_PATTERN}\\.${VERSION_PART_PATTERN}$`,
 );
 
 export const VersionStringSchema = z
@@ -28,7 +28,7 @@ export const RevisionKeySchema = z
   .trim()
   .regex(
     new RegExp(
-      `^rev:.+:\\d+:${VERSION_SEGMENT_PATTERN}\\.${VERSION_SEGMENT_PATTERN}\\.${VERSION_SEGMENT_PATTERN}$`,
+      `^rev:.+:\\d+:${VERSION_PART_PATTERN}\\.${VERSION_PART_PATTERN}\\.${VERSION_PART_PATTERN}$`,
     ),
     'Revision key must match rev:<entityId>:<revisionIndex>:<version>.',
   );
@@ -39,7 +39,7 @@ export const CommitKeySchema = z
   .trim()
   .regex(
     new RegExp(
-      `^commit:.+:\\d+:${VERSION_SEGMENT_PATTERN}\\.${VERSION_SEGMENT_PATTERN}\\.${VERSION_SEGMENT_PATTERN}$`,
+      `^commit:.+:\\d+:${VERSION_PART_PATTERN}\\.${VERSION_PART_PATTERN}\\.${VERSION_PART_PATTERN}$`,
     ),
     'Commit key must match commit:<entityId>:<commitIndex>:<version>.',
   );
@@ -53,7 +53,7 @@ const VersionPartsSchema = z.tuple([
 type VersionParts = z.infer<typeof VersionPartsSchema>;
 
 function parseVersionParts(versionInput: unknown): VersionParts {
-  const normalized = normalizeVersionString(versionInput);
+  const normalized = parseVersionString(versionInput);
   const rawParts = normalized.split('.');
 
   if (rawParts.length !== 3) {
@@ -75,43 +75,45 @@ export function normalizeVersionString(versionInput: unknown): VersionString {
     throw new Error('Version string cannot be empty.');
   }
 
-  if (trimmed.includes(' ')) {
+  if (/\s/.test(trimmed)) {
     throw new Error('Version string cannot contain whitespace.');
   }
 
-  const parts = trimmed.split('.');
+  const rawParts = trimmed.split('.');
 
-  if (parts.length !== 3) {
+  if (rawParts.length !== 3) {
     throw new Error('Version string must contain exactly three numeric segments.');
   }
 
-  for (const part of parts) {
-    if (part.length === 0) {
+  for (const rawPart of rawParts) {
+    if (rawPart.length === 0) {
       throw new Error('Version string cannot contain empty segments.');
     }
 
-    if (!/^\d+$/.test(part)) {
+    if (!/^\d+$/.test(rawPart)) {
       throw new Error('Version segments must be numeric.');
     }
 
-    if (part.length > 1 && part.startsWith('0')) {
-      throw new Error('Version segments cannot contain leading zeroes unless the segment is exactly "0".');
+    if (rawPart.length > 1 && rawPart.startsWith('0')) {
+      throw new Error(
+        'Version segments cannot contain leading zeroes unless the segment is exactly "0".',
+      );
     }
   }
 
-  return VersionStringSchema.parse(parts.join('.'));
+  return VersionStringSchema.parse(rawParts.join('.'));
 }
 
 export function compareVersion(leftInput: unknown, rightInput: unknown): -1 | 0 | 1 {
-  const left = parseVersionParts(leftInput);
-  const right = parseVersionParts(rightInput);
+  const leftParts = parseVersionParts(leftInput);
+  const rightParts = parseVersionParts(rightInput);
 
   for (let index = 0; index < 3; index += 1) {
-    if (left[index] < right[index]) {
+    if (leftParts[index] < rightParts[index]) {
       return -1;
     }
 
-    if (left[index] > right[index]) {
+    if (leftParts[index] > rightParts[index]) {
       return 1;
     }
   }
@@ -154,16 +156,23 @@ export function buildCommitKey(
 }
 
 export function parseVersionString(input: unknown): VersionString {
-  return normalizeVersionString(input);
+  return VersionStringSchema.parse(normalizeVersionString(input));
 }
 
 export function validateVersionString(input: unknown): boolean {
-  try {
-    normalizeVersionString(input);
-    return true;
-  } catch {
+  const rawResult = z.string().safeParse(input);
+
+  if (!rawResult.success) {
     return false;
   }
+
+  const trimmed = rawResult.data.trim();
+
+  if (trimmed.length === 0 || /\s/.test(trimmed)) {
+    return false;
+  }
+
+  return VersionStringSchema.safeParse(trimmed).success;
 }
 
 export function parseRevisionIndex(input: unknown): RevisionIndex {
