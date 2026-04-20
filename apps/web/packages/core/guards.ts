@@ -1,352 +1,359 @@
-import type { Directive } from '../contracts/directive';
-import type { EvidenceBatch } from '../contracts/evidence';
-import type { ReleasePolicyResult } from '../contracts/release-policy';
+import { parseDirective, type Directive } from '../contracts/directive';
+import { parseEvidenceBatch, type EvidenceBatch } from '../contracts/evidence';
+import {
+  parseReleasePolicyResult,
+  type ReleasePolicyResult,
+} from '../contracts/release-policy';
 import { type Role, type SystemState, SystemStateSchema } from '../contracts/state';
 import {
-  ensureDirectiveValid,
-  ensureEvidenceBatchValid,
-  guardFreezeRecoveryAllowed,
-  guardReleasePolicyResultValid,
-  guardResultsExist,
-  guardSystemValid,
-} from './guards';
+  parseReleasePolicyEvaluationRequest,
+  type ReleasePolicyEvaluationRequest,
+} from '../validation/release-policy.schema';
+import { evaluateReleasePolicy } from './release-policy';
 
-export const CoreStateMachineEventTypeValues = [
-  'BOOT',
-  'EXECUTE',
-  'AGENTS_DONE',
-  'VERIFIED',
-  'ACCEPTED',
-  'REJECTED',
-  'ERROR',
-  'RECOVER',
-  'FATAL',
+export const CoreGuardNameValues = [
+  'system_valid',
+  'directive_valid',
+  'results_exist',
+  'evidence_valid',
+  'quorum_satisfied',
+  'release_policy_passed',
+  'release_policy_result_valid',
+  'freeze_recovery_allowed',
+  'not_in_stop',
 ] as const;
-export type CoreStateMachineEventType = (typeof CoreStateMachineEventTypeValues)[number];
+export type CoreGuardName = (typeof CoreGuardNameValues)[number];
 
-export type CoreStateMachineEvent =
-  | { type: 'BOOT' }
-  | { type: 'EXECUTE'; directive: unknown }
-  | { type: 'AGENTS_DONE'; evidenceBatch: unknown }
-  | { type: 'VERIFIED'; evidenceBatch: unknown }
-  | { type: 'ACCEPTED'; releasePolicyResult: unknown }
-  | { type: 'REJECTED'; releasePolicyResult: unknown }
-  | { type: 'ERROR'; reason: string }
-  | { type: 'RECOVER'; actorRole: unknown }
-  | { type: 'FATAL'; reason: string };
+export type GuardPassResult = {
+  guard: CoreGuardName;
+  passed: true;
+  reason: null;
+};
 
-export type TransitionResult =
-  | {
-      allowed: true;
-      from: SystemState;
-      to: SystemState;
-      event: CoreStateMachineEventType;
-    }
-  | {
-      allowed: false;
-      from: SystemState;
-      event: CoreStateMachineEventType;
-      reason: string;
-    };
+export type GuardFailResult = {
+  guard: CoreGuardName;
+  passed: false;
+  reason: string;
+};
 
-function toSystemState(input: unknown): SystemState {
+export type GuardResult = GuardPassResult | GuardFailResult;
+
+export type DirectiveGuardResult =
+  | (GuardPassResult & {
+      directive: Directive;
+    })
+  | (GuardFailResult & {
+      directive: null;
+    });
+
+export type EvidenceGuardResult =
+  | (GuardPassResult & {
+      evidenceBatch: EvidenceBatch;
+    })
+  | (GuardFailResult & {
+      evidenceBatch: null;
+    });
+
+export type ReleasePolicyEvaluationGuardResult =
+  | (GuardPassResult & {
+      request: ReleasePolicyEvaluationRequest;
+      result: ReleasePolicyResult;
+    })
+  | (GuardFailResult & {
+      request: null;
+      result: null;
+    });
+
+export type ReleasePolicyResultGuardResult =
+  | (GuardPassResult & {
+      result: ReleasePolicyResult;
+    })
+  | (GuardFailResult & {
+      result: null;
+    });
+
+function pass(guard: CoreGuardName): GuardPassResult {
+  return {
+    guard,
+    passed: true,
+    reason: null,
+  };
+}
+
+function fail(guard: CoreGuardName, reason: string): GuardFailResult {
+  return {
+    guard,
+    passed: false,
+    reason,
+  };
+}
+
+export function ensureSystemState(input: unknown): SystemState {
   return SystemStateSchema.parse(input);
 }
 
-function expectDirective(input: unknown): Directive {
-  return ensureDirectiveValid(input);
+export function ensureDirectiveValid(input: unknown): Directive {
+  return parseDirective(input);
 }
 
-function expectEvidenceBatch(input: unknown): EvidenceBatch {
-  return ensureEvidenceBatchValid(input);
+export function ensureEvidenceBatchValid(input: unknown): EvidenceBatch {
+  return parseEvidenceBatch(input);
 }
 
-function expectReleasePolicyResult(input: unknown): ReleasePolicyResult {
-  const guard = guardReleasePolicyResultValid(input);
+export function ensureReleasePolicyEvaluationRequestValid(
+  input: unknown,
+): ReleasePolicyEvaluationRequest {
+  return parseReleasePolicyEvaluationRequest(input);
+}
 
-  if (!guard.passed || !guard.result) {
-    throw new Error(guard.reason);
+export function ensureReleasePolicyResultValid(input: unknown): ReleasePolicyResult {
+  return parseReleasePolicyResult(input);
+}
+
+export function guardSystemValid(stateInput: unknown): GuardResult {
+  try {
+    ensureSystemState(stateInput);
+    return pass('system_valid');
+  } catch {
+    return fail('system_valid', 'System state is invalid.');
   }
-
-  return guard.result;
 }
 
-function toRole(input: unknown): Role {
-  if (
-    input === 'OWNER' ||
-    input === 'OPERATOR' ||
-    input === 'AUDITOR' ||
-    input === 'SYSTEM' ||
-    input === 'PUBLIC_USER'
-  ) {
-    return input;
-  }
-
-  throw new Error('Invalid actor role for recovery event.');
-}
-
-export function canTransitionSystemState(
-  stateInput: unknown,
-  event: CoreStateMachineEvent,
-): TransitionResult {
-  const state = toSystemState(stateInput);
-
-  if (!guardSystemValid(state).passed && event.type !== 'FATAL') {
+export function guardDirectiveValid(input: unknown): DirectiveGuardResult {
+  try {
+    const directive = ensureDirectiveValid(input);
     return {
-      allowed: false,
-      from: state,
-      event: event.type,
-      reason: 'System state is not valid for transition.',
+      ...pass('directive_valid'),
+      directive,
+    };
+  } catch {
+    return {
+      ...fail('directive_valid', 'Directive payload is invalid.'),
+      directive: null,
     };
   }
+}
 
-  switch (event.type) {
-    case 'BOOT': {
-      if (state !== 'INIT') {
-        return {
-          allowed: false,
-          from: state,
-          event: event.type,
-          reason: 'BOOT is only allowed from INIT.',
-        };
-      }
+export function guardResultsExist(input: unknown): EvidenceGuardResult {
+  try {
+    const evidenceBatch = ensureEvidenceBatchValid(input);
 
+    if (evidenceBatch.items.length === 0) {
       return {
-        allowed: true,
-        from: state,
-        to: 'READY',
-        event: event.type,
+        ...fail('results_exist', 'Evidence batch contains no items.'),
+        evidenceBatch: null,
       };
     }
 
-    case 'EXECUTE': {
-      expectDirective(event.directive);
-
-      if (state !== 'READY') {
-        return {
-          allowed: false,
-          from: state,
-          event: event.type,
-          reason: 'EXECUTE is only allowed from READY.',
-        };
-      }
-
-      return {
-        allowed: true,
-        from: state,
-        to: 'RUNNING',
-        event: event.type,
-      };
-    }
-
-    case 'AGENTS_DONE': {
-      const resultGuard = guardResultsExist(event.evidenceBatch);
-
-      if (!resultGuard.passed) {
-        return {
-          allowed: false,
-          from: state,
-          event: event.type,
-          reason: resultGuard.reason,
-        };
-      }
-
-      if (state !== 'RUNNING') {
-        return {
-          allowed: false,
-          from: state,
-          event: event.type,
-          reason: 'AGENTS_DONE is only allowed from RUNNING.',
-        };
-      }
-
-      return {
-        allowed: true,
-        from: state,
-        to: 'VERIFYING',
-        event: event.type,
-      };
-    }
-
-    case 'VERIFIED': {
-      const evidenceBatch = expectEvidenceBatch(event.evidenceBatch);
-
-      if (evidenceBatch.items.length === 0) {
-        return {
-          allowed: false,
-          from: state,
-          event: event.type,
-          reason: 'VERIFIED requires at least one evidence item.',
-        };
-      }
-
-      if (state !== 'VERIFYING') {
-        return {
-          allowed: false,
-          from: state,
-          event: event.type,
-          reason: 'VERIFIED is only allowed from VERIFYING.',
-        };
-      }
-
-      return {
-        allowed: true,
-        from: state,
-        to: 'CONSENSUS',
-        event: event.type,
-      };
-    }
-
-    case 'ACCEPTED': {
-      const releasePolicyResult = expectReleasePolicyResult(event.releasePolicyResult);
-
-      if (!releasePolicyResult.passed || !releasePolicyResult.accepted) {
-        return {
-          allowed: false,
-          from: state,
-          event: event.type,
-          reason: 'ACCEPTED requires ReleasePolicyResult with passed=true and accepted=true.',
-        };
-      }
-
-      if (
-        releasePolicyResult.decision !== 'ACCEPT' &&
-        releasePolicyResult.decision !== 'RELEASEABLE'
-      ) {
-        return {
-          allowed: false,
-          from: state,
-          event: event.type,
-          reason: 'ACCEPTED requires decision ACCEPT or RELEASEABLE.',
-        };
-      }
-
-      if (state !== 'CONSENSUS') {
-        return {
-          allowed: false,
-          from: state,
-          event: event.type,
-          reason: 'ACCEPTED is only allowed from CONSENSUS.',
-        };
-      }
-
-      return {
-        allowed: true,
-        from: state,
-        to: 'STABLE',
-        event: event.type,
-      };
-    }
-
-    case 'REJECTED': {
-      const releasePolicyResult = expectReleasePolicyResult(event.releasePolicyResult);
-
-      if (releasePolicyResult.passed || releasePolicyResult.accepted) {
-        return {
-          allowed: false,
-          from: state,
-          event: event.type,
-          reason: 'REJECTED requires ReleasePolicyResult with passed=false and accepted=false.',
-        };
-      }
-
-      if (
-        releasePolicyResult.decision !== 'REJECT' &&
-        releasePolicyResult.decision !== 'FREEZE'
-      ) {
-        return {
-          allowed: false,
-          from: state,
-          event: event.type,
-          reason: 'REJECTED requires decision REJECT or FREEZE.',
-        };
-      }
-
-      if (state !== 'CONSENSUS') {
-        return {
-          allowed: false,
-          from: state,
-          event: event.type,
-          reason: 'REJECTED is only allowed from CONSENSUS.',
-        };
-      }
-
-      return {
-        allowed: true,
-        from: state,
-        to: 'FREEZE',
-        event: event.type,
-      };
-    }
-
-    case 'ERROR': {
-      if (state === 'STOP') {
-        return {
-          allowed: false,
-          from: state,
-          event: event.type,
-          reason: 'ERROR cannot transition from STOP.',
-        };
-      }
-
-      return {
-        allowed: true,
-        from: state,
-        to: 'FREEZE',
-        event: event.type,
-      };
-    }
-
-    case 'RECOVER': {
-      const actorRole = toRole(event.actorRole);
-      const recoveryGuard = guardFreezeRecoveryAllowed(state, actorRole);
-
-      if (!recoveryGuard.passed) {
-        return {
-          allowed: false,
-          from: state,
-          event: event.type,
-          reason: recoveryGuard.reason,
-        };
-      }
-
-      return {
-        allowed: true,
-        from: state,
-        to: 'READY',
-        event: event.type,
-      };
-    }
-
-    case 'FATAL': {
-      if (state !== 'FREEZE') {
-        return {
-          allowed: false,
-          from: state,
-          event: event.type,
-          reason: 'FATAL is only allowed from FREEZE.',
-        };
-      }
-
-      return {
-        allowed: true,
-        from: state,
-        to: 'STOP',
-        event: event.type,
-      };
-    }
+    return {
+      ...pass('results_exist'),
+      evidenceBatch,
+    };
+  } catch {
+    return {
+      ...fail('results_exist', 'Evidence batch is invalid.'),
+      evidenceBatch: null,
+    };
   }
 }
 
-export function transitionSystemState(
-  stateInput: unknown,
-  event: CoreStateMachineEvent,
-): SystemState {
-  const result = canTransitionSystemState(stateInput, event);
+export function guardEvidenceValid(input: unknown): EvidenceGuardResult {
+  try {
+    const evidenceBatch = ensureEvidenceBatchValid(input);
 
-  if (!result.allowed) {
-    throw new Error(result.reason);
+    const invalidItem = evidenceBatch.items.find(
+      (item) =>
+        !item.verified ||
+        item.contradicted === true ||
+        item.weight.confidence <= 0 ||
+        item.weight.integrity <= 0,
+    );
+
+    if (invalidItem) {
+      return {
+        ...fail('evidence_valid', `Evidence item ${invalidItem.id} is not valid for verification.`),
+        evidenceBatch: null,
+      };
+    }
+
+    return {
+      ...pass('evidence_valid'),
+      evidenceBatch,
+    };
+  } catch {
+    return {
+      ...fail('evidence_valid', 'Evidence batch failed structural validation.'),
+      evidenceBatch: null,
+    };
+  }
+}
+
+export function guardQuorumSatisfied(quorumCount: number, requiredQuorum: number): GuardResult {
+  if (!Number.isInteger(quorumCount) || quorumCount < 0) {
+    return fail('quorum_satisfied', 'quorumCount must be a non-negative integer.');
   }
 
-  return result.to;
+  if (!Number.isInteger(requiredQuorum) || requiredQuorum <= 0) {
+    return fail('quorum_satisfied', 'requiredQuorum must be a positive integer.');
+  }
+
+  if (quorumCount < requiredQuorum) {
+    return fail(
+      'quorum_satisfied',
+      `Quorum not satisfied: received ${quorumCount}, required ${requiredQuorum}.`,
+    );
+  }
+
+  return pass('quorum_satisfied');
+}
+
+export function guardReleasePolicyPassed(input: unknown): ReleasePolicyEvaluationGuardResult {
+  try {
+    const request = ensureReleasePolicyEvaluationRequestValid(input);
+    const result = evaluateReleasePolicy(request);
+
+    if (!result.passed) {
+      return {
+        ...fail('release_policy_passed', 'Release policy evaluation did not pass.'),
+        request: null,
+        result: null,
+      };
+    }
+
+    return {
+      ...pass('release_policy_passed'),
+      request,
+      result,
+    };
+  } catch {
+    return {
+      ...fail('release_policy_passed', 'Release policy evaluation request is invalid.'),
+      request: null,
+      result: null,
+    };
+  }
+}
+
+export function guardReleasePolicyResultValid(input: unknown): ReleasePolicyResultGuardResult {
+  try {
+    const result = ensureReleasePolicyResultValid(input);
+
+    return {
+      ...pass('release_policy_result_valid'),
+      result,
+    };
+  } catch {
+    return {
+      ...fail('release_policy_result_valid', 'ReleasePolicyResult payload is invalid.'),
+      result: null,
+    };
+  }
+}
+
+export function guardFreezeRecoveryAllowed(stateInput: unknown, actorRoleInput: unknown): GuardResult {
+  let state: SystemState;
+
+  try {
+    state = ensureSystemState(stateInput);
+  } catch {
+    return fail('freeze_recovery_allowed', 'System state is invalid.');
+  }
+
+  const actorRole = actorRoleInput as Role;
+
+  if (state !== 'FREEZE') {
+    return fail('freeze_recovery_allowed', 'Recovery is only allowed from FREEZE.');
+  }
+
+  if (actorRole !== 'OWNER' && actorRole !== 'SYSTEM') {
+    return fail('freeze_recovery_allowed', 'Only OWNER or SYSTEM can recover from FREEZE.');
+  }
+
+  return pass('freeze_recovery_allowed');
+}
+
+export function guardNotInStop(stateInput: unknown): GuardResult {
+  try {
+    const state = ensureSystemState(stateInput);
+
+    if (state === 'STOP') {
+      return fail('not_in_stop', 'System is already in STOP.');
+    }
+
+    return pass('not_in_stop');
+  } catch {
+    return fail('not_in_stop', 'System state is invalid.');
+  }
+}
+
+export function evaluateCoreGuards(input: {
+  state: unknown;
+  directive?: unknown;
+  evidenceBatch?: unknown;
+  releasePolicy?: unknown;
+  releasePolicyResult?: unknown;
+  requestedByRole?: unknown;
+  quorumCount?: number;
+  requiredQuorum?: number;
+}): GuardResult[] {
+  const results: GuardResult[] = [];
+
+  results.push(guardSystemValid(input.state));
+  results.push(guardNotInStop(input.state));
+
+  if (input.directive !== undefined) {
+    const directiveGuard = guardDirectiveValid(input.directive);
+    results.push({
+      guard: directiveGuard.guard,
+      passed: directiveGuard.passed,
+      reason: directiveGuard.reason,
+    });
+  }
+
+  if (input.evidenceBatch !== undefined) {
+    const resultsGuard = guardResultsExist(input.evidenceBatch);
+    const evidenceGuard = guardEvidenceValid(input.evidenceBatch);
+
+    results.push({
+      guard: resultsGuard.guard,
+      passed: resultsGuard.passed,
+      reason: resultsGuard.reason,
+    });
+    results.push({
+      guard: evidenceGuard.guard,
+      passed: evidenceGuard.passed,
+      reason: evidenceGuard.reason,
+    });
+  }
+
+  if (
+    typeof input.quorumCount === 'number' &&
+    typeof input.requiredQuorum === 'number'
+  ) {
+    results.push(guardQuorumSatisfied(input.quorumCount, input.requiredQuorum));
+  }
+
+  if (input.releasePolicy !== undefined) {
+    const releaseGuard = guardReleasePolicyPassed(input.releasePolicy);
+    results.push({
+      guard: releaseGuard.guard,
+      passed: releaseGuard.passed,
+      reason: releaseGuard.reason,
+    });
+  }
+
+  if (input.releasePolicyResult !== undefined) {
+    const releasePolicyResultGuard = guardReleasePolicyResultValid(input.releasePolicyResult);
+    results.push({
+      guard: releasePolicyResultGuard.guard,
+      passed: releasePolicyResultGuard.passed,
+      reason: releasePolicyResultGuard.reason,
+    });
+  }
+
+  if (input.requestedByRole !== undefined) {
+    results.push(guardFreezeRecoveryAllowed(input.state, input.requestedByRole));
+  }
+
+  return results;
 }
