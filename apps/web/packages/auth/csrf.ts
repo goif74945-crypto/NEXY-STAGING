@@ -1,31 +1,13 @@
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 
-const ISO_TIMESTAMP_PATTERN =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+\-]\d{2}:\d{2})$/;
-
-function parseIsoTimestampToMillis(label: string, value: string): number {
-  const parsed = Date.parse(value);
-
-  if (Number.isNaN(parsed)) {
-    throw new Error(`${label} must be a valid ISO timestamp.`);
-  }
-
-  return parsed;
-}
-
-function assertChronology(startLabel: string, start: string, endLabel: string, end: string): void {
-  const startMs = parseIsoTimestampToMillis(startLabel, start);
-  const endMs = parseIsoTimestampToMillis(endLabel, end);
-
-  if (endMs < startMs) {
-    throw new Error(`${endLabel} must be greater than or equal to ${startLabel}.`);
-  }
+function createSha256Hex(input: string): string {
+  return createHash('sha256').update(input, 'utf8').digest('hex').toLowerCase();
 }
 
 function safeEqualHex(left: string, right: string): boolean {
-  const leftBuffer = Buffer.from(left.trim().toLowerCase(), 'utf8');
-  const rightBuffer = Buffer.from(right.trim().toLowerCase(), 'utf8');
+  const leftBuffer = Buffer.from(left, 'utf8');
+  const rightBuffer = Buffer.from(right, 'utf8');
 
   if (leftBuffer.length !== rightBuffer.length) {
     return false;
@@ -34,92 +16,73 @@ function safeEqualHex(left: string, right: string): boolean {
   return timingSafeEqual(leftBuffer, rightBuffer);
 }
 
-export const CsrfSecretSchema = z.string().trim().min(1).max(512);
-export type CsrfSecret = z.infer<typeof CsrfSecretSchema>;
-
-export const CsrfSessionIdSchema = z.string().trim().min(1).max(128);
-export type CsrfSessionId = z.infer<typeof CsrfSessionIdSchema>;
-
-export const CsrfScopeSchema = z.string().trim().min(1).max(128);
-export type CsrfScope = z.infer<typeof CsrfScopeSchema>;
-
-export const CsrfIssuedAtSchema = z.string().trim().regex(ISO_TIMESTAMP_PATTERN);
-export type CsrfIssuedAt = z.infer<typeof CsrfIssuedAtSchema>;
-
-export const CsrfExpiresAtSchema = z.string().trim().regex(ISO_TIMESTAMP_PATTERN);
-export type CsrfExpiresAt = z.infer<typeof CsrfExpiresAtSchema>;
-
-export const CsrfCheckedAtSchema = z.string().trim().regex(ISO_TIMESTAMP_PATTERN);
-export type CsrfCheckedAt = z.infer<typeof CsrfCheckedAtSchema>;
-
 export const CsrfTokenSchema = z
   .string()
   .trim()
-  .regex(/^[a-f0-9]{64}$/, 'CSRF token must be a lower-case 64-char hex string.');
+  .regex(/^[a-f0-9]{64}$/, 'CSRF token must be lower-case sha256 hex.');
 export type CsrfToken = z.infer<typeof CsrfTokenSchema>;
 
 export const CsrfTokenHashSchema = z
   .string()
   .trim()
-  .regex(/^[a-f0-9]{64}$/, 'CSRF token hash must be a lower-case 64-char hex string.');
+  .regex(/^[a-f0-9]{64}$/, 'CSRF token hash must be lower-case sha256 hex.');
 export type CsrfTokenHash = z.infer<typeof CsrfTokenHashSchema>;
 
-export const CsrfRecordSchema = z
-  .object({
-    session_id: CsrfSessionIdSchema,
-    scope: CsrfScopeSchema,
-    issued_at: CsrfIssuedAtSchema,
-    expires_at: CsrfExpiresAtSchema,
-    token_hash: CsrfTokenHashSchema,
-  })
-  .strict()
-  .superRefine((value, ctx) => {
-    try {
-      assertChronology('issued_at', value.issued_at, 'expires_at', value.expires_at);
-    } catch (error) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: error instanceof Error ? error.message : 'Invalid CSRF record timestamps.',
-      });
-    }
-  });
-export type CsrfRecord = z.infer<typeof CsrfRecordSchema>;
+export const CsrfSessionIdSchema = z.string().trim().min(1).max(128);
+export type CsrfSessionId = z.infer<typeof CsrfSessionIdSchema>;
 
-export const CsrfDerivationInputSchema = z
+export const CsrfSubjectSchema = z.string().trim().min(1).max(256);
+export type CsrfSubject = z.infer<typeof CsrfSubjectSchema>;
+
+export const CsrfNonceSchema = z.string().trim().min(1).max(256);
+export type CsrfNonce = z.infer<typeof CsrfNonceSchema>;
+
+export const CsrfVersionSchema = z.string().trim().min(1).max(64);
+export type CsrfVersion = z.infer<typeof CsrfVersionSchema>;
+
+export const CsrfBindingSchema = z
   .object({
-    secret: CsrfSecretSchema,
     session_id: CsrfSessionIdSchema,
-    scope: CsrfScopeSchema,
-    issued_at: CsrfIssuedAtSchema,
-    expires_at: CsrfExpiresAtSchema,
+    subject: CsrfSubjectSchema,
+    nonce: CsrfNonceSchema,
+    version: CsrfVersionSchema,
+    token_hash: CsrfTokenHashSchema,
+    issued_at_epoch_ms: z.number().int().nonnegative(),
+    expires_at_epoch_ms: z.number().int().nonnegative(),
   })
   .strict()
   .superRefine((value, ctx) => {
-    try {
-      assertChronology('issued_at', value.issued_at, 'expires_at', value.expires_at);
-    } catch (error) {
+    if (value.expires_at_epoch_ms < value.issued_at_epoch_ms) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: error instanceof Error ? error.message : 'Invalid CSRF derivation timestamps.',
+        message: 'expires_at_epoch_ms must be greater than or equal to issued_at_epoch_ms.',
       });
     }
   });
-export type CsrfDerivationInput = z.infer<typeof CsrfDerivationInputSchema>;
+export type CsrfBinding = z.infer<typeof CsrfBindingSchema>;
 
 export const CsrfCreateInputSchema = z
   .object({
-    derivation: CsrfDerivationInputSchema,
+    session_id: CsrfSessionIdSchema,
+    subject: CsrfSubjectSchema,
+    nonce: CsrfNonceSchema,
+    version: CsrfVersionSchema,
+    token: CsrfTokenSchema,
+    issued_at_epoch_ms: z.number().int().nonnegative(),
+    expires_at_epoch_ms: z.number().int().nonnegative(),
   })
   .strict();
 export type CsrfCreateInput = z.infer<typeof CsrfCreateInputSchema>;
 
 export const CsrfVerificationInputSchema = z
   .object({
-    record: CsrfRecordSchema,
+    binding: CsrfBindingSchema,
     token: CsrfTokenSchema,
-    checked_at: CsrfCheckedAtSchema,
-    scope: CsrfScopeSchema,
     session_id: CsrfSessionIdSchema,
+    subject: CsrfSubjectSchema,
+    nonce: CsrfNonceSchema,
+    version: CsrfVersionSchema,
+    current_epoch_ms: z.number().int().nonnegative(),
   })
   .strict();
 export type CsrfVerificationInput = z.infer<typeof CsrfVerificationInputSchema>;
@@ -127,83 +90,60 @@ export type CsrfVerificationInput = z.infer<typeof CsrfVerificationInputSchema>;
 export const CsrfVerificationResultSchema = z
   .object({
     accepted: z.boolean(),
-    reason: z.enum(['verified', 'invalid_token', 'expired', 'scope_mismatch', 'session_mismatch']),
+    reason: z.enum(['verified', 'invalid_token', 'expired', 'session_mismatch', 'subject_mismatch', 'nonce_mismatch', 'version_mismatch']),
   })
   .strict();
 export type CsrfVerificationResult = z.infer<typeof CsrfVerificationResultSchema>;
 
-export function deriveCsrfToken(input: unknown): CsrfToken {
-  const parsed = CsrfDerivationInputSchema.parse(input);
-  const canonical = [
-    parsed.session_id,
-    parsed.scope,
-    parsed.issued_at,
-    parsed.expires_at,
-  ].join('|');
-
-  const token = createHmac('sha256', parsed.secret).update(canonical, 'utf8').digest('hex');
-  return CsrfTokenSchema.parse(token);
-}
-
 export function hashCsrfToken(input: unknown): CsrfTokenHash {
   const token = CsrfTokenSchema.parse(input);
-  const digest = createHash('sha256').update(token, 'utf8').digest('hex');
-  return CsrfTokenHashSchema.parse(digest);
+  return CsrfTokenHashSchema.parse(createSha256Hex(token));
 }
 
-export function createCsrfRecord(input: unknown): CsrfRecord {
+export function createCsrfBinding(input: unknown): CsrfBinding {
   const parsed = CsrfCreateInputSchema.parse(input);
-  const token = deriveCsrfToken(parsed.derivation);
 
-  return CsrfRecordSchema.parse({
-    session_id: parsed.derivation.session_id,
-    scope: parsed.derivation.scope,
-    issued_at: parsed.derivation.issued_at,
-    expires_at: parsed.derivation.expires_at,
-    token_hash: hashCsrfToken(token),
+  return CsrfBindingSchema.parse({
+    session_id: parsed.session_id,
+    subject: parsed.subject,
+    nonce: parsed.nonce,
+    version: parsed.version,
+    token_hash: hashCsrfToken(parsed.token),
+    issued_at_epoch_ms: parsed.issued_at_epoch_ms,
+    expires_at_epoch_ms: parsed.expires_at_epoch_ms,
   });
 }
 
-export function verifyCsrfToken(input: unknown): CsrfVerificationResult {
+export function verifyCsrfBinding(input: unknown): CsrfVerificationResult {
   const parsed = CsrfVerificationInputSchema.parse(input);
 
-  if (parsed.record.session_id !== parsed.session_id) {
-    return CsrfVerificationResultSchema.parse({
-      accepted: false,
-      reason: 'session_mismatch',
-    });
+  if (parsed.binding.session_id !== parsed.session_id) {
+    return CsrfVerificationResultSchema.parse({ accepted: false, reason: 'session_mismatch' });
   }
 
-  if (parsed.record.scope !== parsed.scope) {
-    return CsrfVerificationResultSchema.parse({
-      accepted: false,
-      reason: 'scope_mismatch',
-    });
+  if (parsed.binding.subject !== parsed.subject) {
+    return CsrfVerificationResultSchema.parse({ accepted: false, reason: 'subject_mismatch' });
   }
 
-  const checkedAtMs = parseIsoTimestampToMillis('checked_at', parsed.checked_at);
-  const expiresAtMs = parseIsoTimestampToMillis('expires_at', parsed.record.expires_at);
+  if (parsed.binding.nonce !== parsed.nonce) {
+    return CsrfVerificationResultSchema.parse({ accepted: false, reason: 'nonce_mismatch' });
+  }
 
-  if (checkedAtMs > expiresAtMs) {
-    return CsrfVerificationResultSchema.parse({
-      accepted: false,
-      reason: 'expired',
-    });
+  if (parsed.binding.version !== parsed.version) {
+    return CsrfVerificationResultSchema.parse({ accepted: false, reason: 'version_mismatch' });
+  }
+
+  if (parsed.current_epoch_ms > parsed.binding.expires_at_epoch_ms) {
+    return CsrfVerificationResultSchema.parse({ accepted: false, reason: 'expired' });
   }
 
   const presentedHash = hashCsrfToken(parsed.token);
 
-  if (!safeEqualHex(parsed.record.token_hash, presentedHash)) {
-    return CsrfVerificationResultSchema.parse({
-      accepted: false,
-      reason: 'invalid_token',
-    });
+  if (!safeEqualHex(parsed.binding.token_hash, presentedHash)) {
+    return CsrfVerificationResultSchema.parse({ accepted: false, reason: 'invalid_token' });
   }
 
-  return CsrfVerificationResultSchema.parse({
-    accepted: true,
-    reason: 'verified',
-  });
+  return CsrfVerificationResultSchema.parse({ accepted: true, reason: 'verified' });
 }
 
 export function parseCsrfToken(input: unknown): CsrfToken {
@@ -214,12 +154,12 @@ export function validateCsrfToken(input: unknown): boolean {
   return CsrfTokenSchema.safeParse(input).success;
 }
 
-export function parseCsrfRecord(input: unknown): CsrfRecord {
-  return CsrfRecordSchema.parse(input);
+export function parseCsrfBinding(input: unknown): CsrfBinding {
+  return CsrfBindingSchema.parse(input);
 }
 
-export function validateCsrfRecord(input: unknown): boolean {
-  return CsrfRecordSchema.safeParse(input).success;
+export function validateCsrfBinding(input: unknown): boolean {
+  return CsrfBindingSchema.safeParse(input).success;
 }
 
 export function parseCsrfVerificationResult(input: unknown): CsrfVerificationResult {
