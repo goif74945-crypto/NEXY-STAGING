@@ -9,14 +9,13 @@ import {
   VersionStringSchema,
   buildCommitKey,
   buildRevisionKey,
-  compareVersion,
   parseCommitKey,
   parseRepositoryEntityId,
   parseRevisionKey,
+  compareVersion,
 } from './versioning';
 import {
   IntegrityPayloadSchema,
-  IntegrityVerificationResultSchema,
   Sha256HashSchema,
   hashCommit,
   hashPayload,
@@ -68,7 +67,7 @@ export const RepositoryStateSchema = z
   .strict();
 export type RepositoryState = z.infer<typeof RepositoryStateSchema>;
 
-function sortEntityIdsAscending(left: string, right: string): -1 | 0 | 1 {
+function sortTextAscending(left: string, right: string): -1 | 0 | 1 {
   if (left < right) {
     return -1;
   }
@@ -84,14 +83,15 @@ function compareSnapshots(
   left: RepositoryEntitySnapshot,
   right: RepositoryEntitySnapshot,
 ): -1 | 0 | 1 {
-  return sortEntityIdsAscending(left.entity_id, right.entity_id);
+  return sortTextAscending(left.entity_id, right.entity_id);
 }
 
 function compareRevisions(
   left: RepositoryRevisionRecord,
   right: RepositoryRevisionRecord,
 ): -1 | 0 | 1 {
-  const entityComparison = sortEntityIdsAscending(left.entity_id, right.entity_id);
+  const entityComparison = sortTextAscending(left.entity_id, right.entity_id);
+
   if (entityComparison !== 0) {
     return entityComparison;
   }
@@ -104,22 +104,15 @@ function compareRevisions(
     return 1;
   }
 
-  if (left.revision_key < right.revision_key) {
-    return -1;
-  }
-
-  if (left.revision_key > right.revision_key) {
-    return 1;
-  }
-
-  return 0;
+  return sortTextAscending(left.revision_key, right.revision_key);
 }
 
 function compareCommits(
   left: RepositoryCommitRecord,
   right: RepositoryCommitRecord,
 ): -1 | 0 | 1 {
-  const entityComparison = sortEntityIdsAscending(left.entity_id, right.entity_id);
+  const entityComparison = sortTextAscending(left.entity_id, right.entity_id);
+
   if (entityComparison !== 0) {
     return entityComparison;
   }
@@ -132,15 +125,7 @@ function compareCommits(
     return 1;
   }
 
-  if (left.commit_key < right.commit_key) {
-    return -1;
-  }
-
-  if (left.commit_key > right.commit_key) {
-    return 1;
-  }
-
-  return 0;
+  return sortTextAscending(left.commit_key, right.commit_key);
 }
 
 function sortSnapshots(
@@ -161,41 +146,9 @@ function sortCommits(
   return [...commits].sort((left, right) => compareCommits(left, right));
 }
 
-function verifySnapshotHash(
-  snapshot: RepositoryEntitySnapshot,
-): z.infer<typeof IntegrityVerificationResultSchema> {
-  const actualHash = hashPayload(snapshot.payload);
-  return verifyIntegrityEquality(snapshot.snapshot_hash, actualHash);
-}
-
-function verifyRevisionHash(
-  revision: RepositoryRevisionRecord,
-): z.infer<typeof IntegrityVerificationResultSchema> {
-  const actualHash = hashRevision({
-    entity_id: revision.entity_id,
-    revision_index: revision.revision_index,
-    version: revision.version,
-    payload: revision.payload,
-  });
-
-  return verifyIntegrityEquality(revision.payload_hash, actualHash);
-}
-
-function verifyCommitHash(
-  commit: RepositoryCommitRecord,
-): z.infer<typeof IntegrityVerificationResultSchema> {
-  const actualHash = hashCommit({
-    entity_id: commit.entity_id,
-    commit_index: commit.commit_index,
-    version: commit.version,
-    payload: commit.payload,
-  });
-
-  return verifyIntegrityEquality(commit.payload_hash, actualHash);
-}
-
-function assertSnapshotIntegrity(snapshot: RepositoryEntitySnapshot): void {
-  const verification = verifySnapshotHash(snapshot);
+function assertSnapshotHash(snapshot: RepositoryEntitySnapshot): void {
+  const expectedHash = hashPayload(snapshot.payload);
+  const verification = verifyIntegrityEquality(snapshot.snapshot_hash, expectedHash);
 
   if (!verification.matches) {
     throw new Error(`Snapshot hash mismatch for entity ${snapshot.entity_id}`);
@@ -213,7 +166,13 @@ function assertRevisionIntegrity(revision: RepositoryRevisionRecord): void {
     throw new Error(`Revision key mismatch for entity ${revision.entity_id}`);
   }
 
-  const verification = verifyRevisionHash(revision);
+  const expectedHash = hashRevision({
+    entity_id: revision.entity_id,
+    revision_index: revision.revision_index,
+    version: revision.version,
+    payload: revision.payload,
+  });
+  const verification = verifyIntegrityEquality(revision.payload_hash, expectedHash);
 
   if (!verification.matches) {
     throw new Error(`Revision payload hash mismatch for revision ${revision.revision_key}`);
@@ -231,14 +190,36 @@ function assertCommitIntegrity(commit: RepositoryCommitRecord): void {
     throw new Error(`Commit key mismatch for entity ${commit.entity_id}`);
   }
 
-  const verification = verifyCommitHash(commit);
+  const expectedHash = hashCommit({
+    entity_id: commit.entity_id,
+    commit_index: commit.commit_index,
+    version: commit.version,
+    payload: commit.payload,
+  });
+  const verification = verifyIntegrityEquality(commit.payload_hash, expectedHash);
 
   if (!verification.matches) {
     throw new Error(`Commit payload hash mismatch for commit ${commit.commit_key}`);
   }
 }
 
-function assertNoDuplicateRevisionKeys(revisions: readonly RepositoryRevisionRecord[]): void {
+function assertNoDuplicateSnapshotEntityIds(
+  snapshots: readonly RepositoryEntitySnapshot[],
+): void {
+  const seen = new Set<string>();
+
+  for (const snapshot of snapshots) {
+    if (seen.has(snapshot.entity_id)) {
+      throw new Error(`Duplicate snapshot entity_id: ${snapshot.entity_id}`);
+    }
+
+    seen.add(snapshot.entity_id);
+  }
+}
+
+function assertNoDuplicateRevisionKeys(
+  revisions: readonly RepositoryRevisionRecord[],
+): void {
   const seen = new Set<string>();
 
   for (const revision of revisions) {
@@ -250,7 +231,27 @@ function assertNoDuplicateRevisionKeys(revisions: readonly RepositoryRevisionRec
   }
 }
 
-function assertNoDuplicateCommitKeys(commits: readonly RepositoryCommitRecord[]): void {
+function assertNoDuplicateRevisionIndexes(
+  revisions: readonly RepositoryRevisionRecord[],
+): void {
+  const seen = new Set<string>();
+
+  for (const revision of revisions) {
+    const compound = `${revision.entity_id}:${revision.revision_index}`;
+
+    if (seen.has(compound)) {
+      throw new Error(
+        `Duplicate revision index for entity ${revision.entity_id}: ${revision.revision_index}`,
+      );
+    }
+
+    seen.add(compound);
+  }
+}
+
+function assertNoDuplicateCommitKeys(
+  commits: readonly RepositoryCommitRecord[],
+): void {
   const seen = new Set<string>();
 
   for (const commit of commits) {
@@ -262,45 +263,27 @@ function assertNoDuplicateCommitKeys(commits: readonly RepositoryCommitRecord[])
   }
 }
 
-function assertNoDuplicateRevisionIndexes(
-  revisions: readonly RepositoryRevisionRecord[],
-): void {
-  const seen = new Set<string>();
-
-  for (const revision of revisions) {
-    const compoundKey = `${revision.entity_id}:${revision.revision_index}`;
-
-    if (seen.has(compoundKey)) {
-      throw new Error(
-        `Duplicate revision index for entity ${revision.entity_id}: ${revision.revision_index}`,
-      );
-    }
-
-    seen.add(compoundKey);
-  }
-}
-
 function assertNoDuplicateCommitIndexes(
   commits: readonly RepositoryCommitRecord[],
 ): void {
   const seen = new Set<string>();
 
   for (const commit of commits) {
-    const compoundKey = `${commit.entity_id}:${commit.commit_index}`;
+    const compound = `${commit.entity_id}:${commit.commit_index}`;
 
-    if (seen.has(compoundKey)) {
+    if (seen.has(compound)) {
       throw new Error(
         `Duplicate commit index for entity ${commit.entity_id}: ${commit.commit_index}`,
       );
     }
 
-    seen.add(compoundKey);
+    seen.add(compound);
   }
 }
 
-function assertRepositoryIntegrity(state: RepositoryState): void {
+function assertRepositoryStateIntegrity(state: RepositoryState): void {
   for (const snapshot of state.snapshots) {
-    assertSnapshotIntegrity(snapshot);
+    assertSnapshotHash(snapshot);
   }
 
   for (const revision of state.revisions) {
@@ -311,15 +294,16 @@ function assertRepositoryIntegrity(state: RepositoryState): void {
     assertCommitIntegrity(commit);
   }
 
+  assertNoDuplicateSnapshotEntityIds(state.snapshots);
   assertNoDuplicateRevisionKeys(state.revisions);
-  assertNoDuplicateCommitKeys(state.commits);
   assertNoDuplicateRevisionIndexes(state.revisions);
+  assertNoDuplicateCommitKeys(state.commits);
   assertNoDuplicateCommitIndexes(state.commits);
 }
 
 function parseStateInternal(input: unknown): RepositoryState {
   const state = RepositoryStateSchema.parse(input);
-  assertRepositoryIntegrity(state);
+  assertRepositoryStateIntegrity(state);
   return state;
 }
 
@@ -335,9 +319,11 @@ export function upsertEntitySnapshot(
   stateInput: unknown,
   snapshotInput: unknown,
 ): RepositoryState {
-  const state = parseStateInternal(stateInput);
+  const state = parseRepositoryState(stateInput);
   const snapshot = parseRepositoryEntitySnapshot(snapshotInput);
-  const verification = verifySnapshotHash(snapshot);
+
+  const expectedHash = hashPayload(snapshot.payload);
+  const verification = verifyIntegrityEquality(snapshot.snapshot_hash, expectedHash);
 
   if (!verification.matches) {
     throw new Error(`Snapshot hash mismatch for entity ${snapshot.entity_id}`);
@@ -348,6 +334,14 @@ export function upsertEntitySnapshot(
       .filter((existingSnapshot) => existingSnapshot.entity_id !== snapshot.entity_id)
       .concat([snapshot]),
   );
+
+  const matchingCount = nextSnapshots.filter(
+    (existingSnapshot) => existingSnapshot.entity_id === snapshot.entity_id,
+  ).length;
+
+  if (matchingCount !== 1) {
+    throw new Error(`Snapshot uniqueness violation for entity ${snapshot.entity_id}`);
+  }
 
   return RepositoryStateSchema.parse({
     snapshots: nextSnapshots,
@@ -360,7 +354,7 @@ export function appendRevision(
   stateInput: unknown,
   revisionInput: unknown,
 ): RepositoryState {
-  const state = parseStateInternal(stateInput);
+  const state = parseRepositoryState(stateInput);
   const revision = parseRepositoryRevisionRecord(revisionInput);
 
   const expectedKey = buildRevisionKey(
@@ -373,9 +367,15 @@ export function appendRevision(
     throw new Error(`Revision key mismatch for entity ${revision.entity_id}`);
   }
 
-  const hashVerification = verifyRevisionHash(revision);
+  const expectedHash = hashRevision({
+    entity_id: revision.entity_id,
+    revision_index: revision.revision_index,
+    version: revision.version,
+    payload: revision.payload,
+  });
+  const verification = verifyIntegrityEquality(revision.payload_hash, expectedHash);
 
-  if (!hashVerification.matches) {
+  if (!verification.matches) {
     throw new Error(`Revision payload hash mismatch for revision ${revision.revision_key}`);
   }
 
@@ -387,13 +387,13 @@ export function appendRevision(
     throw new Error(`Duplicate revision key: ${revision.revision_key}`);
   }
 
-  const duplicateByEntityAndIndex = state.revisions.some(
+  const duplicateByIndex = state.revisions.some(
     (existingRevision) =>
       existingRevision.entity_id === revision.entity_id &&
       existingRevision.revision_index === revision.revision_index,
   );
 
-  if (duplicateByEntityAndIndex) {
+  if (duplicateByIndex) {
     throw new Error(
       `Duplicate revision index for entity ${revision.entity_id}: ${revision.revision_index}`,
     );
@@ -412,7 +412,7 @@ export function appendCommit(
   stateInput: unknown,
   commitInput: unknown,
 ): RepositoryState {
-  const state = parseStateInternal(stateInput);
+  const state = parseRepositoryState(stateInput);
   const commit = parseRepositoryCommitRecord(commitInput);
 
   const expectedKey = buildCommitKey(
@@ -425,9 +425,15 @@ export function appendCommit(
     throw new Error(`Commit key mismatch for entity ${commit.entity_id}`);
   }
 
-  const hashVerification = verifyCommitHash(commit);
+  const expectedHash = hashCommit({
+    entity_id: commit.entity_id,
+    commit_index: commit.commit_index,
+    version: commit.version,
+    payload: commit.payload,
+  });
+  const verification = verifyIntegrityEquality(commit.payload_hash, expectedHash);
 
-  if (!hashVerification.matches) {
+  if (!verification.matches) {
     throw new Error(`Commit payload hash mismatch for commit ${commit.commit_key}`);
   }
 
@@ -439,13 +445,13 @@ export function appendCommit(
     throw new Error(`Duplicate commit key: ${commit.commit_key}`);
   }
 
-  const duplicateByEntityAndIndex = state.commits.some(
+  const duplicateByIndex = state.commits.some(
     (existingCommit) =>
       existingCommit.entity_id === commit.entity_id &&
       existingCommit.commit_index === commit.commit_index,
   );
 
-  if (duplicateByEntityAndIndex) {
+  if (duplicateByIndex) {
     throw new Error(
       `Duplicate commit index for entity ${commit.entity_id}: ${commit.commit_index}`,
     );
@@ -471,22 +477,24 @@ export function getLatestRevision(
   }
 
   const maxRevisionIndex = history[history.length - 1].revision_index;
-  const candidates = history.filter((revision) => revision.revision_index === maxRevisionIndex);
+  const latestCandidates = history.filter(
+    (revision) => revision.revision_index === maxRevisionIndex,
+  );
 
-  if (candidates.length > 1) {
+  if (latestCandidates.length > 1) {
     throw new Error(
-      `Multiple revisions share the latest revision index for entity ${candidates[0].entity_id}: ${maxRevisionIndex}`,
+      `Multiple latest revisions found for entity ${latestCandidates[0].entity_id}: ${maxRevisionIndex}`,
     );
   }
 
-  return candidates[0];
+  return latestCandidates[0];
 }
 
 export function getRevisionHistoryByEntityId(
   stateInput: unknown,
   entityIdInput: unknown,
 ): RepositoryRevisionRecord[] {
-  const state = parseStateInternal(stateInput);
+  const state = parseRepositoryState(stateInput);
   const entityId = parseRepositoryEntityId(entityIdInput);
 
   const history = sortRevisions(
@@ -512,7 +520,7 @@ export function getCommitHistoryByEntityId(
   stateInput: unknown,
   entityIdInput: unknown,
 ): RepositoryCommitRecord[] {
-  const state = parseStateInternal(stateInput);
+  const state = parseRepositoryState(stateInput);
   const entityId = parseRepositoryEntityId(entityIdInput);
 
   const history = sortCommits(
@@ -541,9 +549,9 @@ export function validateRepositoryEntitySnapshot(input: unknown): boolean {
 }
 
 export function parseRepositoryRevisionRecord(input: unknown): RepositoryRevisionRecord {
-  const record = RepositoryRevisionRecordSchema.parse(input);
-  parseRevisionKey(record.revision_key);
-  return record;
+  const parsed = RepositoryRevisionRecordSchema.parse(input);
+  parseRevisionKey(parsed.revision_key);
+  return parsed;
 }
 
 export function validateRepositoryRevisionRecord(input: unknown): boolean {
@@ -551,9 +559,9 @@ export function validateRepositoryRevisionRecord(input: unknown): boolean {
 }
 
 export function parseRepositoryCommitRecord(input: unknown): RepositoryCommitRecord {
-  const record = RepositoryCommitRecordSchema.parse(input);
-  parseCommitKey(record.commit_key);
-  return record;
+  const parsed = RepositoryCommitRecordSchema.parse(input);
+  parseCommitKey(parsed.commit_key);
+  return parsed;
 }
 
 export function validateRepositoryCommitRecord(input: unknown): boolean {
@@ -565,10 +573,16 @@ export function parseRepositoryState(input: unknown): RepositoryState {
 }
 
 export function validateRepositoryState(input: unknown): boolean {
+  const schemaResult = RepositoryStateSchema.safeParse(input);
+
+  if (!schemaResult.success) {
+    return false;
+  }
+
   try {
-    parseStateInternal(input);
+    assertRepositoryStateIntegrity(schemaResult.data);
     return true;
   } catch {
     return false;
   }
-}
+}​
