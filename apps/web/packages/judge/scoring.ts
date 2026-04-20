@@ -8,7 +8,11 @@ import {
   EvidenceDirectionSchema,
   EvidenceItemSchema,
 } from '../contracts/evidence';
+import { TimestampIsoSchema } from '../contracts/state';
 import { validateEvidenceBatch } from '../validation/evidence.schema';
+
+export const EvidenceScoringReferenceTimeSchema = TimestampIsoSchema;
+export type EvidenceScoringReferenceTime = z.infer<typeof EvidenceScoringReferenceTimeSchema>;
 
 export const EvidenceScoreBreakdownSchema = z
   .object({
@@ -35,6 +39,7 @@ export type EvidenceScoreItem = z.infer<typeof EvidenceScoreItemSchema>;
 export const EvidenceScoreBatchSchema = z
   .object({
     directive_id: z.string().trim().min(1).max(128),
+    reference_time: EvidenceScoringReferenceTimeSchema,
     items: z.array(EvidenceScoreItemSchema),
     aggregate_score: z.number().finite().min(0).max(1),
     average_confidence: z.number().finite().min(0).max(1),
@@ -47,6 +52,22 @@ export const EvidenceScoreBatchSchema = z
   })
   .strict();
 export type EvidenceScoreBatch = z.infer<typeof EvidenceScoreBatchSchema>;
+
+export const EvidenceScoreItemInputSchema = z
+  .object({
+    item: EvidenceItemSchema,
+    reference_time: EvidenceScoringReferenceTimeSchema,
+  })
+  .strict();
+export type EvidenceScoreItemInput = z.infer<typeof EvidenceScoreItemInputSchema>;
+
+export const EvidenceScoreBatchInputSchema = z
+  .object({
+    evidence_batch: EvidenceBatchSchema,
+    reference_time: EvidenceScoringReferenceTimeSchema,
+  })
+  .strict();
+export type EvidenceScoreBatchInput = z.infer<typeof EvidenceScoreBatchInputSchema>;
 
 function normalizeUnitInterval(value: number): number {
   if (!Number.isFinite(value)) {
@@ -64,15 +85,25 @@ function normalizeUnitInterval(value: number): number {
   return value;
 }
 
-function computeFreshnessScore(collectedAt: string): number {
-  const collectedAtMs = Date.parse(collectedAt);
+function parseTimestampToMs(timestamp: string, fieldName: string): number {
+  const parsedMs = Date.parse(timestamp);
 
-  if (Number.isNaN(collectedAtMs)) {
-    throw new Error('Invalid evidence collected_at timestamp.');
+  if (Number.isNaN(parsedMs)) {
+    throw new Error(`${fieldName} must be a valid ISO timestamp.`);
   }
 
-  const nowMs = Date.now();
-  const ageMs = Math.max(0, nowMs - collectedAtMs);
+  return parsedMs;
+}
+
+function computeFreshnessScore(collectedAt: string, referenceTime: string): number {
+  const collectedAtMs = parseTimestampToMs(collectedAt, 'collected_at');
+  const referenceTimeMs = parseTimestampToMs(referenceTime, 'reference_time');
+
+  if (referenceTimeMs < collectedAtMs) {
+    throw new Error('reference_time must be greater than or equal to collected_at.');
+  }
+
+  const ageMs = referenceTimeMs - collectedAtMs;
   const ageDays = ageMs / 86_400_000;
 
   if (ageDays <= 1) {
@@ -107,9 +138,10 @@ function scoreDirection(direction: EvidenceDirection): number {
 }
 
 export function scoreEvidenceItem(input: unknown): EvidenceScoreItem {
-  const item: EvidenceItem = EvidenceItemSchema.parse(input);
+  const parsed: EvidenceScoreItemInput = EvidenceScoreItemInputSchema.parse(input);
+  const item: EvidenceItem = parsed.item;
 
-  const freshness = computeFreshnessScore(item.collected_at);
+  const freshness = computeFreshnessScore(item.collected_at, parsed.reference_time);
   const confidence = normalizeUnitInterval(item.confidence);
   const relevance = normalizeUnitInterval(item.weight.relevance);
   const integrity = normalizeUnitInterval(item.weight.integrity);
@@ -144,12 +176,19 @@ export function scoreEvidenceItem(input: unknown): EvidenceScoreItem {
 }
 
 export function scoreEvidenceBatch(input: unknown): EvidenceScoreBatch {
-  if (!validateEvidenceBatch(input)) {
+  const parsed: EvidenceScoreBatchInput = EvidenceScoreBatchInputSchema.parse(input);
+
+  if (!validateEvidenceBatch(parsed.evidence_batch)) {
     throw new Error('Evidence batch failed validation.');
   }
 
-  const batch: EvidenceBatch = EvidenceBatchSchema.parse(input);
-  const items = batch.items.map((item) => scoreEvidenceItem(item));
+  const batch: EvidenceBatch = EvidenceBatchSchema.parse(parsed.evidence_batch);
+  const items = batch.items.map((item) =>
+    scoreEvidenceItem({
+      item,
+      reference_time: parsed.reference_time,
+    }),
+  );
 
   const supportCount = items.filter((item) => item.direction === 'SUPPORT').length;
   const opposeCount = items.filter((item) => item.direction === 'OPPOSE').length;
@@ -157,6 +196,7 @@ export function scoreEvidenceBatch(input: unknown): EvidenceScoreBatch {
 
   return {
     directive_id: batch.directive_id,
+    reference_time: parsed.reference_time,
     items,
     aggregate_score: average(items.map((item) => item.final_score)),
     average_confidence: average(items.map((item) => item.breakdown.confidence)),
