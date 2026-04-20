@@ -1,17 +1,11 @@
 import { z } from 'zod';
 
-const VERSION_PART_PATTERN = '(0|[1-9]\\d*)';
-const VERSION_PATTERN = new RegExp(
-  `^${VERSION_PART_PATTERN}\\.${VERSION_PART_PATTERN}\\.${VERSION_PART_PATTERN}$`,
-);
+const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
 export const VersionStringSchema = z
   .string()
   .trim()
-  .regex(
-    VERSION_PATTERN,
-    'Version string must match major.minor.patch using non-negative integers without leading zeroes.',
-  );
+  .regex(VERSION_PATTERN, 'Version must use exact major.minor.patch format.');
 export type VersionString = z.infer<typeof VersionStringSchema>;
 
 export const RevisionIndexSchema = z.number().int().nonnegative();
@@ -20,16 +14,14 @@ export type RevisionIndex = z.infer<typeof RevisionIndexSchema>;
 export const CommitIndexSchema = z.number().int().nonnegative();
 export type CommitIndex = z.infer<typeof CommitIndexSchema>;
 
-export const RepositoryEntityIdSchema = z.string().trim().min(1).max(256);
+export const RepositoryEntityIdSchema = z.string().trim().min(1).max(128);
 export type RepositoryEntityId = z.infer<typeof RepositoryEntityIdSchema>;
 
 export const RevisionKeySchema = z
   .string()
   .trim()
   .regex(
-    new RegExp(
-      `^rev:.+:\\d+:${VERSION_PART_PATTERN}\\.${VERSION_PART_PATTERN}\\.${VERSION_PART_PATTERN}$`,
-    ),
+    /^rev:.+:\d+:(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/,
     'Revision key must match rev:<entityId>:<revisionIndex>:<version>.',
   );
 export type RevisionKey = z.infer<typeof RevisionKeySchema>;
@@ -38,141 +30,32 @@ export const CommitKeySchema = z
   .string()
   .trim()
   .regex(
-    new RegExp(
-      `^commit:.+:\\d+:${VERSION_PART_PATTERN}\\.${VERSION_PART_PATTERN}\\.${VERSION_PART_PATTERN}$`,
-    ),
+    /^commit:.+:\d+:(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/,
     'Commit key must match commit:<entityId>:<commitIndex>:<version>.',
   );
 export type CommitKey = z.infer<typeof CommitKeySchema>;
 
-const VersionPartsSchema = z.tuple([
-  z.number().int().nonnegative(),
-  z.number().int().nonnegative(),
-  z.number().int().nonnegative(),
-]);
-type VersionParts = z.infer<typeof VersionPartsSchema>;
+function parseVersionSegments(versionInput: unknown): [number, number, number] {
+  const normalized = normalizeVersionString(versionInput);
+  const parts = normalized.split('.');
 
-function parseVersionParts(versionInput: unknown): VersionParts {
-  const normalized = parseVersionString(versionInput);
-  const rawParts = normalized.split('.');
-
-  if (rawParts.length !== 3) {
-    throw new Error('Version string must contain exactly three numeric segments.');
+  if (parts.length !== 3) {
+    throw new Error('Version must have exactly 3 segments.');
   }
 
-  return VersionPartsSchema.parse([
-    Number.parseInt(rawParts[0], 10),
-    Number.parseInt(rawParts[1], 10),
-    Number.parseInt(rawParts[2], 10),
-  ]);
-}
-
-export function normalizeVersionString(versionInput: unknown): VersionString {
-  const raw = z.string().parse(versionInput);
-  const trimmed = raw.trim();
-
-  if (trimmed.length === 0) {
-    throw new Error('Version string cannot be empty.');
-  }
-
-  if (/\s/.test(trimmed)) {
-    throw new Error('Version string cannot contain whitespace.');
-  }
-
-  const rawParts = trimmed.split('.');
-
-  if (rawParts.length !== 3) {
-    throw new Error('Version string must contain exactly three numeric segments.');
-  }
-
-  for (const rawPart of rawParts) {
-    if (rawPart.length === 0) {
-      throw new Error('Version string cannot contain empty segments.');
-    }
-
-    if (!/^\d+$/.test(rawPart)) {
-      throw new Error('Version segments must be numeric.');
-    }
-
-    if (rawPart.length > 1 && rawPart.startsWith('0')) {
-      throw new Error(
-        'Version segments cannot contain leading zeroes unless the segment is exactly "0".',
-      );
-    }
-  }
-
-  return VersionStringSchema.parse(rawParts.join('.'));
-}
-
-export function compareVersion(leftInput: unknown, rightInput: unknown): -1 | 0 | 1 {
-  const leftParts = parseVersionParts(leftInput);
-  const rightParts = parseVersionParts(rightInput);
-
-  for (let index = 0; index < 3; index += 1) {
-    if (leftParts[index] < rightParts[index]) {
-      return -1;
-    }
-
-    if (leftParts[index] > rightParts[index]) {
-      return 1;
-    }
-  }
-
-  return 0;
-}
-
-export function nextRevisionIndex(currentInput: unknown): RevisionIndex {
-  const current = parseRevisionIndex(currentInput);
-  return RevisionIndexSchema.parse(current + 1);
-}
-
-export function nextCommitIndex(currentInput: unknown): CommitIndex {
-  const current = parseCommitIndex(currentInput);
-  return CommitIndexSchema.parse(current + 1);
-}
-
-export function buildRevisionKey(
-  entityIdInput: unknown,
-  revisionIndexInput: unknown,
-  versionInput: unknown,
-): RevisionKey {
-  const entityId = parseRepositoryEntityId(entityIdInput);
-  const revisionIndex = parseRevisionIndex(revisionIndexInput);
-  const version = normalizeVersionString(versionInput);
-
-  return RevisionKeySchema.parse(`rev:${entityId}:${revisionIndex}:${version}`);
-}
-
-export function buildCommitKey(
-  entityIdInput: unknown,
-  commitIndexInput: unknown,
-  versionInput: unknown,
-): CommitKey {
-  const entityId = parseRepositoryEntityId(entityIdInput);
-  const commitIndex = parseCommitIndex(commitIndexInput);
-  const version = normalizeVersionString(versionInput);
-
-  return CommitKeySchema.parse(`commit:${entityId}:${commitIndex}:${version}`);
+  return [
+    Number.parseInt(parts[0], 10),
+    Number.parseInt(parts[1], 10),
+    Number.parseInt(parts[2], 10),
+  ];
 }
 
 export function parseVersionString(input: unknown): VersionString {
-  return VersionStringSchema.parse(normalizeVersionString(input));
+  return VersionStringSchema.parse(input);
 }
 
 export function validateVersionString(input: unknown): boolean {
-  const rawResult = z.string().safeParse(input);
-
-  if (!rawResult.success) {
-    return false;
-  }
-
-  const trimmed = rawResult.data.trim();
-
-  if (trimmed.length === 0 || /\s/.test(trimmed)) {
-    return false;
-  }
-
-  return VersionStringSchema.safeParse(trimmed).success;
+  return VersionStringSchema.safeParse(input).success;
 }
 
 export function parseRevisionIndex(input: unknown): RevisionIndex {
@@ -213,4 +96,90 @@ export function parseCommitKey(input: unknown): CommitKey {
 
 export function validateCommitKey(input: unknown): boolean {
   return CommitKeySchema.safeParse(input).success;
+}
+
+export function normalizeVersionString(input: unknown): VersionString {
+  const raw = z.string().parse(input);
+  const trimmed = raw.trim();
+
+  if (trimmed.length === 0) {
+    throw new Error('Version must not be empty.');
+  }
+
+  if (/\s/.test(trimmed)) {
+    throw new Error('Version must not contain whitespace.');
+  }
+
+  const parts = trimmed.split('.');
+
+  if (parts.length !== 3) {
+    throw new Error('Version must have exactly 3 segments.');
+  }
+
+  const normalizedParts = parts.map((part) => {
+    if (part.length === 0) {
+      throw new Error('Version segments must not be empty.');
+    }
+
+    if (!/^\d+$/.test(part)) {
+      throw new Error('Version segments must be numeric.');
+    }
+
+    if (part.length > 1 && part.startsWith('0')) {
+      throw new Error('Version segments must not contain leading zeroes.');
+    }
+
+    return String(Number.parseInt(part, 10));
+  });
+
+  return VersionStringSchema.parse(normalizedParts.join('.'));
+}
+
+export function compareVersion(leftInput: unknown, rightInput: unknown): -1 | 0 | 1 {
+  const left = parseVersionSegments(leftInput);
+  const right = parseVersionSegments(rightInput);
+
+  for (let index = 0; index < 3; index += 1) {
+    if (left[index] < right[index]) {
+      return -1;
+    }
+
+    if (left[index] > right[index]) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+export function nextRevisionIndex(currentInput: unknown): RevisionIndex {
+  const current = parseRevisionIndex(currentInput);
+  return RevisionIndexSchema.parse(current + 1);
+}
+
+export function nextCommitIndex(currentInput: unknown): CommitIndex {
+  const current = parseCommitIndex(currentInput);
+  return CommitIndexSchema.parse(current + 1);
+}
+
+export function buildRevisionKey(
+  entityIdInput: unknown,
+  revisionIndexInput: unknown,
+  versionInput: unknown,
+): RevisionKey {
+  const entityId = parseRepositoryEntityId(entityIdInput);
+  const revisionIndex = parseRevisionIndex(revisionIndexInput);
+  const version = normalizeVersionString(versionInput);
+  return RevisionKeySchema.parse(`rev:${entityId}:${revisionIndex}:${version}`);
+}
+
+export function buildCommitKey(
+  entityIdInput: unknown,
+  commitIndexInput: unknown,
+  versionInput: unknown,
+): CommitKey {
+  const entityId = parseRepositoryEntityId(entityIdInput);
+  const commitIndex = parseCommitIndex(commitIndexInput);
+  const version = normalizeVersionString(versionInput);
+  return CommitKeySchema.parse(`commit:${entityId}:${commitIndex}:${version}`);
 }
