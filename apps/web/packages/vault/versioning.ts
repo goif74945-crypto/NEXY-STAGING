@@ -1,15 +1,16 @@
 import { z } from 'zod';
 
-const NumericVersionPartSchema = z
-  .string()
-  .regex(/^(0|[1-9]\d*)$/, 'Version parts must be non-negative integers without leading zeroes.');
+const VERSION_SEGMENT_PATTERN = '(0|[1-9]\\d*)';
+const VERSION_PATTERN = new RegExp(
+  `^${VERSION_SEGMENT_PATTERN}\\.${VERSION_SEGMENT_PATTERN}\\.${VERSION_SEGMENT_PATTERN}$`,
+);
 
 export const VersionStringSchema = z
   .string()
   .trim()
   .regex(
-    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/,
-    'Version string must match major.minor.patch without leading zeroes.',
+    VERSION_PATTERN,
+    'Version string must match major.minor.patch using non-negative integers without leading zeroes.',
   );
 export type VersionString = z.infer<typeof VersionStringSchema>;
 
@@ -26,7 +27,9 @@ export const RevisionKeySchema = z
   .string()
   .trim()
   .regex(
-    /^rev:.+:\d+:(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/,
+    new RegExp(
+      `^rev:.+:\\d+:${VERSION_SEGMENT_PATTERN}\\.${VERSION_SEGMENT_PATTERN}\\.${VERSION_SEGMENT_PATTERN}$`,
+    ),
     'Revision key must match rev:<entityId>:<revisionIndex>:<version>.',
   );
 export type RevisionKey = z.infer<typeof RevisionKeySchema>;
@@ -35,56 +38,80 @@ export const CommitKeySchema = z
   .string()
   .trim()
   .regex(
-    /^commit:.+:\d+:(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/,
+    new RegExp(
+      `^commit:.+:\\d+:${VERSION_SEGMENT_PATTERN}\\.${VERSION_SEGMENT_PATTERN}\\.${VERSION_SEGMENT_PATTERN}$`,
+    ),
     'Commit key must match commit:<entityId>:<commitIndex>:<version>.',
   );
 export type CommitKey = z.infer<typeof CommitKeySchema>;
 
-const VersionPartsSchema = z
-  .tuple([NumericVersionPartSchema, NumericVersionPartSchema, NumericVersionPartSchema])
-  .readonly();
-
+const VersionPartsSchema = z.tuple([
+  z.number().int().nonnegative(),
+  z.number().int().nonnegative(),
+  z.number().int().nonnegative(),
+]);
 type VersionParts = z.infer<typeof VersionPartsSchema>;
 
-function splitVersionParts(versionInput: unknown): VersionParts {
-  const version = parseVersionString(versionInput);
-  const parts = version.split('.');
+function parseVersionParts(versionInput: unknown): VersionParts {
+  const normalized = normalizeVersionString(versionInput);
+  const rawParts = normalized.split('.');
 
-  return VersionPartsSchema.parse([parts[0], parts[1], parts[2]]);
-}
+  if (rawParts.length !== 3) {
+    throw new Error('Version string must contain exactly three numeric segments.');
+  }
 
-function parseVersionPart(partInput: string): number {
-  const part = NumericVersionPartSchema.parse(partInput);
-  return Number.parseInt(part, 10);
+  return VersionPartsSchema.parse([
+    Number.parseInt(rawParts[0], 10),
+    Number.parseInt(rawParts[1], 10),
+    Number.parseInt(rawParts[2], 10),
+  ]);
 }
 
 export function normalizeVersionString(versionInput: unknown): VersionString {
   const raw = z.string().parse(versionInput);
   const trimmed = raw.trim();
+
+  if (trimmed.length === 0) {
+    throw new Error('Version string cannot be empty.');
+  }
+
+  if (trimmed.includes(' ')) {
+    throw new Error('Version string cannot contain whitespace.');
+  }
+
   const parts = trimmed.split('.');
 
   if (parts.length !== 3) {
     throw new Error('Version string must contain exactly three numeric segments.');
   }
 
-  const validatedParts = VersionPartsSchema.parse([parts[0], parts[1], parts[2]]);
+  for (const part of parts) {
+    if (part.length === 0) {
+      throw new Error('Version string cannot contain empty segments.');
+    }
 
-  return VersionStringSchema.parse(validatedParts.join('.'));
+    if (!/^\d+$/.test(part)) {
+      throw new Error('Version segments must be numeric.');
+    }
+
+    if (part.length > 1 && part.startsWith('0')) {
+      throw new Error('Version segments cannot contain leading zeroes unless the segment is exactly "0".');
+    }
+  }
+
+  return VersionStringSchema.parse(parts.join('.'));
 }
 
 export function compareVersion(leftInput: unknown, rightInput: unknown): -1 | 0 | 1 {
-  const leftParts = splitVersionParts(leftInput);
-  const rightParts = splitVersionParts(rightInput);
+  const left = parseVersionParts(leftInput);
+  const right = parseVersionParts(rightInput);
 
   for (let index = 0; index < 3; index += 1) {
-    const leftValue = parseVersionPart(leftParts[index]);
-    const rightValue = parseVersionPart(rightParts[index]);
-
-    if (leftValue < rightValue) {
+    if (left[index] < right[index]) {
       return -1;
     }
 
-    if (leftValue > rightValue) {
+    if (left[index] > right[index]) {
       return 1;
     }
   }
@@ -127,12 +154,16 @@ export function buildCommitKey(
 }
 
 export function parseVersionString(input: unknown): VersionString {
-  return VersionStringSchema.parse(z.string().parse(input).trim());
+  return normalizeVersionString(input);
 }
 
 export function validateVersionString(input: unknown): boolean {
-  return VersionStringSchema.safeParse(z.string().safeParse(input).success ? z.string().parse(input).trim() : input)
-    .success;
+  try {
+    normalizeVersionString(input);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function parseRevisionIndex(input: unknown): RevisionIndex {
