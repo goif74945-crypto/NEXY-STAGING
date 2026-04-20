@@ -3,10 +3,10 @@ import type { EvidenceBatch } from '../contracts/evidence';
 import type { ReleasePolicyResult } from '../contracts/release-policy';
 import { type Role, type SystemState, SystemStateSchema } from '../contracts/state';
 import {
-  guardDirectiveValid,
-  guardEvidenceValid,
+  ensureDirectiveValid,
+  ensureEvidenceBatchValid,
   guardFreezeRecoveryAllowed,
-  guardReleasePolicyPassed,
+  guardReleasePolicyResultValid,
   guardResultsExist,
   guardSystemValid,
 } from './guards';
@@ -54,20 +54,31 @@ function toSystemState(input: unknown): SystemState {
 }
 
 function expectDirective(input: unknown): Directive {
-  return guardDirectiveValid(input).directive;
+  return ensureDirectiveValid(input);
 }
 
 function expectEvidenceBatch(input: unknown): EvidenceBatch {
-  return guardEvidenceValid(input).evidenceBatch;
+  return ensureEvidenceBatchValid(input);
 }
 
 function expectReleasePolicyResult(input: unknown): ReleasePolicyResult {
-  const acceptedGuard = guardReleasePolicyPassed(input);
-  return acceptedGuard.result;
+  const guard = guardReleasePolicyResultValid(input);
+
+  if (!guard.passed || !guard.result) {
+    throw new Error(guard.reason);
+  }
+
+  return guard.result;
 }
 
 function toRole(input: unknown): Role {
-  if (input === 'OWNER' || input === 'OPERATOR' || input === 'AUDITOR' || input === 'SYSTEM' || input === 'PUBLIC_USER') {
+  if (
+    input === 'OWNER' ||
+    input === 'OPERATOR' ||
+    input === 'AUDITOR' ||
+    input === 'SYSTEM' ||
+    input === 'PUBLIC_USER'
+  ) {
     return input;
   }
 
@@ -194,7 +205,19 @@ export function canTransitionSystemState(
           allowed: false,
           from: state,
           event: event.type,
-          reason: 'ACCEPTED requires a passed release policy result.',
+          reason: 'ACCEPTED requires ReleasePolicyResult with passed=true and accepted=true.',
+        };
+      }
+
+      if (
+        releasePolicyResult.decision !== 'ACCEPT' &&
+        releasePolicyResult.decision !== 'RELEASEABLE'
+      ) {
+        return {
+          allowed: false,
+          from: state,
+          event: event.type,
+          reason: 'ACCEPTED requires decision ACCEPT or RELEASEABLE.',
         };
       }
 
@@ -216,7 +239,28 @@ export function canTransitionSystemState(
     }
 
     case 'REJECTED': {
-      expectReleasePolicyResult(event.releasePolicyResult);
+      const releasePolicyResult = expectReleasePolicyResult(event.releasePolicyResult);
+
+      if (releasePolicyResult.passed || releasePolicyResult.accepted) {
+        return {
+          allowed: false,
+          from: state,
+          event: event.type,
+          reason: 'REJECTED requires ReleasePolicyResult with passed=false and accepted=false.',
+        };
+      }
+
+      if (
+        releasePolicyResult.decision !== 'REJECT' &&
+        releasePolicyResult.decision !== 'FREEZE'
+      ) {
+        return {
+          allowed: false,
+          from: state,
+          event: event.type,
+          reason: 'REJECTED requires decision REJECT or FREEZE.',
+        };
+      }
 
       if (state !== 'CONSENSUS') {
         return {
