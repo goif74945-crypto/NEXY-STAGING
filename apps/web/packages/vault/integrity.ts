@@ -2,10 +2,10 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
 type IntegrityPrimitive = string | number | boolean | null;
-type IntegrityValue =
+export type IntegrityPayload =
   | IntegrityPrimitive
-  | IntegrityValue[]
-  | { [key: string]: IntegrityValue };
+  | IntegrityPayload[]
+  | { [key: string]: IntegrityPayload };
 
 const IntegrityPrimitiveSchema = z.union([
   z.string(),
@@ -14,14 +14,13 @@ const IntegrityPrimitiveSchema = z.union([
   z.null(),
 ]);
 
-export const IntegrityPayloadSchema: z.ZodType<IntegrityValue> = z.lazy(() =>
+export const IntegrityPayloadSchema: z.ZodType<IntegrityPayload> = z.lazy(() =>
   z.union([
     IntegrityPrimitiveSchema,
     z.array(IntegrityPayloadSchema),
     z.record(IntegrityPayloadSchema),
   ]),
 );
-export type IntegrityPayload = z.infer<typeof IntegrityPayloadSchema>;
 
 export const Sha256HashSchema = z
   .string()
@@ -38,11 +37,48 @@ export const IntegrityVerificationResultSchema = z
   .strict();
 export type IntegrityVerificationResult = z.infer<typeof IntegrityVerificationResultSchema>;
 
-function isPlainObject(input: unknown): input is Record<string, unknown> {
-  return Object.prototype.toString.call(input) === '[object Object]';
+function isDateObject(input: unknown): input is Date {
+  return input instanceof Date;
 }
 
-function normalizeIntegrityValue(input: unknown): IntegrityValue {
+function isMapObject(input: unknown): input is Map<unknown, unknown> {
+  return input instanceof Map;
+}
+
+function isSetObject(input: unknown): input is Set<unknown> {
+  return input instanceof Set;
+}
+
+function isPlainRecord(input: unknown): input is Record<string, unknown> {
+  if (Object.prototype.toString.call(input) !== '[object Object]') {
+    return false;
+  }
+
+  const prototype = Object.getPrototypeOf(input);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function normalizeNumber(value: number): number {
+  if (!Number.isFinite(value)) {
+    throw new Error('Integrity payload does not support NaN or Infinity.');
+  }
+
+  if (Object.is(value, -0)) {
+    throw new Error('Integrity payload does not support -0.');
+  }
+
+  return value;
+}
+
+function normalizeIntegrityPayload(input: unknown, atRoot: boolean): IntegrityPayload {
+  if (typeof input === 'undefined') {
+    if (atRoot) {
+      throw new Error('Root integrity payload cannot be undefined.');
+    }
+
+    throw new Error('Undefined is not allowed in this position.');
+  }
+
   if (input === null) {
     return null;
   }
@@ -52,42 +88,53 @@ function normalizeIntegrityValue(input: unknown): IntegrityValue {
   }
 
   if (typeof input === 'number') {
-    if (!Number.isFinite(input)) {
-      throw new Error('Integrity payload cannot contain non-finite numbers.');
-    }
-
-    return input;
-  }
-
-  if (typeof input === 'undefined') {
-    throw new Error('Top-level undefined is not supported.');
-  }
-
-  if (typeof input === 'function') {
-    throw new Error('Functions are not supported in integrity payloads.');
-  }
-
-  if (typeof input === 'symbol') {
-    throw new Error('Symbols are not supported in integrity payloads.');
+    return normalizeNumber(input);
   }
 
   if (typeof input === 'bigint') {
-    throw new Error('BigInt is not supported in integrity payloads.');
+    throw new Error('Integrity payload does not support bigint.');
+  }
+
+  if (typeof input === 'function') {
+    throw new Error('Integrity payload does not support function values.');
+  }
+
+  if (typeof input === 'symbol') {
+    throw new Error('Integrity payload does not support symbol values.');
+  }
+
+  if (isDateObject(input)) {
+    throw new Error('Integrity payload does not support Date objects.');
+  }
+
+  if (isMapObject(input)) {
+    throw new Error('Integrity payload does not support Map objects.');
+  }
+
+  if (isSetObject(input)) {
+    throw new Error('Integrity payload does not support Set objects.');
   }
 
   if (Array.isArray(input)) {
-    return input.map((item) => {
-      if (typeof item === 'undefined') {
-        return null;
-      }
-
-      return normalizeIntegrityValue(item);
-    });
+    return input.map((item) =>
+      typeof item === 'undefined' ? null : normalizeIntegrityPayload(item, false),
+    );
   }
 
-  if (isPlainObject(input)) {
-    const normalized: { [key: string]: IntegrityValue } = {};
-    const keys = Object.keys(input).sort((left, right) => left.localeCompare(right));
+  if (isPlainRecord(input)) {
+    const keys = Object.keys(input).sort((left, right) => {
+      if (left < right) {
+        return -1;
+      }
+
+      if (left > right) {
+        return 1;
+      }
+
+      return 0;
+    });
+
+    const normalized: { [key: string]: IntegrityPayload } = {};
 
     for (const key of keys) {
       const value = input[key];
@@ -96,73 +143,151 @@ function normalizeIntegrityValue(input: unknown): IntegrityValue {
         continue;
       }
 
-      normalized[key] = normalizeIntegrityValue(value);
+      normalized[key] = normalizeIntegrityPayload(value, false);
     }
 
     return normalized;
   }
 
-  throw new Error('Unsupported integrity payload value.');
+  throw new Error('Integrity payload contains an unsupported value.');
 }
 
-export function canonicalStringify(input: unknown): string {
-  const normalized = normalizeIntegrityValue(input);
-
-  if (normalized === null) {
+function canonicalSerialize(input: IntegrityPayload): string {
+  if (input === null) {
     return 'null';
   }
 
-  if (typeof normalized === 'string') {
-    return JSON.stringify(normalized);
+  if (typeof input === 'string') {
+    return JSON.stringify(input);
   }
 
-  if (typeof normalized === 'number') {
-    return JSON.stringify(normalized);
+  if (typeof input === 'number') {
+    return JSON.stringify(input);
   }
 
-  if (typeof normalized === 'boolean') {
-    return normalized ? 'true' : 'false';
+  if (typeof input === 'boolean') {
+    return input ? 'true' : 'false';
   }
 
-  if (Array.isArray(normalized)) {
-    return `[${normalized.map((item) => canonicalStringify(item)).join(',')}]`;
+  if (Array.isArray(input)) {
+    return `[${input.map((item) => canonicalSerialize(item)).join(',')}]`;
   }
 
-  const keys = Object.keys(normalized).sort((left, right) => left.localeCompare(right));
-  const entries = keys.map((key) => `${JSON.stringify(key)}:${canonicalStringify(normalized[key])}`);
+  const keys = Object.keys(input).sort((left, right) => {
+    if (left < right) {
+      return -1;
+    }
 
-  return `{${entries.join(',')}}`;
+    if (left > right) {
+      return 1;
+    }
+
+    return 0;
+  });
+
+  const serializedEntries = keys.map(
+    (key) => `${JSON.stringify(key)}:${canonicalSerialize(input[key])}`,
+  );
+
+  return `{${serializedEntries.join(',')}}`;
 }
 
-function sha256FromCanonicalString(input: string): Sha256Hash {
+function sha256Hex(input: string): Sha256Hash {
   const digest = createHash('sha256').update(input, 'utf8').digest('hex').toLowerCase();
   return Sha256HashSchema.parse(digest);
 }
 
-export function hashPayload(input: unknown): Sha256Hash {
+const RevisionHashInputSchema = z
+  .object({
+    entity_id: z.string().trim().min(1),
+    revision_index: z.number().int().nonnegative(),
+    version: z.string().trim().min(1),
+    payload: IntegrityPayloadSchema,
+  })
+  .strict();
+
+const CommitHashInputSchema = z
+  .object({
+    entity_id: z.string().trim().min(1),
+    commit_index: z.number().int().nonnegative(),
+    version: z.string().trim().min(1),
+    payload: IntegrityPayloadSchema,
+  })
+  .strict();
+
+export function canonicalStringify(input: unknown): string {
   const payload = parseIntegrityPayload(input);
-  const canonical = canonicalStringify(payload);
-  return sha256FromCanonicalString(canonical);
+  return canonicalSerialize(payload);
+}
+
+export function hashPayload(input: IntegrityPayload): Sha256Hash {
+  const payload = parseIntegrityPayload(input);
+  const canonical = canonicalSerialize(payload);
+  return sha256Hex(canonical);
 }
 
 export function hashRevision(input: unknown): Sha256Hash {
-  const payload = parseIntegrityPayload(input);
-  const canonical = canonicalStringify(payload);
-  return sha256FromCanonicalString(canonical);
+  const parsed = RevisionHashInputSchema.parse({
+    ...z.object({
+      entity_id: z.string().trim().min(1),
+      revision_index: z.number().int().nonnegative(),
+      version: z.string().trim().min(1),
+      payload: z.unknown(),
+    }).parse(input),
+    payload: parseIntegrityPayload(
+      z.object({
+        entity_id: z.string().trim().min(1),
+        revision_index: z.number().int().nonnegative(),
+        version: z.string().trim().min(1),
+        payload: z.unknown(),
+      }).parse(input).payload,
+    ),
+  });
+
+  const canonical = canonicalSerialize({
+    entity_id: parsed.entity_id,
+    revision_index: parsed.revision_index,
+    version: parsed.version,
+    payload: parsed.payload,
+  });
+
+  return sha256Hex(canonical);
 }
 
 export function hashCommit(input: unknown): Sha256Hash {
-  const payload = parseIntegrityPayload(input);
-  const canonical = canonicalStringify(payload);
-  return sha256FromCanonicalString(canonical);
+  const parsed = CommitHashInputSchema.parse({
+    ...z.object({
+      entity_id: z.string().trim().min(1),
+      commit_index: z.number().int().nonnegative(),
+      version: z.string().trim().min(1),
+      payload: z.unknown(),
+    }).parse(input),
+    payload: parseIntegrityPayload(
+      z.object({
+        entity_id: z.string().trim().min(1),
+        commit_index: z.number().int().nonnegative(),
+        version: z.string().trim().min(1),
+        payload: z.unknown(),
+      }).parse(input).payload,
+    ),
+  });
+
+  const canonical = canonicalSerialize({
+    entity_id: parsed.entity_id,
+    commit_index: parsed.commit_index,
+    version: parsed.version,
+    payload: parsed.payload,
+  });
+
+  return sha256Hex(canonical);
 }
 
 export function verifyIntegrityEquality(
-  expectedInput: unknown,
-  actualInput: unknown,
+  expectedHashInput: unknown,
+  actualHashInput: unknown,
 ): IntegrityVerificationResult {
-  const expected_hash = parseSha256Hash(expectedInput);
-  const actual_hash = parseSha256Hash(actualInput);
+  const expected_hash = parseSha256Hash(expectedHashInput);
+  const actual_hash = parseSha256Hash(actualHashInput);
 
   return IntegrityVerificationResultSchema.parse({
     expected_hash,
@@ -180,12 +305,13 @@ export function validateSha256Hash(input: unknown): boolean {
 }
 
 export function parseIntegrityPayload(input: unknown): IntegrityPayload {
-  return IntegrityPayloadSchema.parse(normalizeIntegrityValue(input));
+  return IntegrityPayloadSchema.parse(normalizeIntegrityPayload(input, true));
 }
 
 export function validateIntegrityPayload(input: unknown): boolean {
   try {
-    return IntegrityPayloadSchema.safeParse(normalizeIntegrityValue(input)).success;
+    const normalized = normalizeIntegrityPayload(input, true);
+    return IntegrityPayloadSchema.safeParse(normalized).success;
   } catch {
     return false;
   }
