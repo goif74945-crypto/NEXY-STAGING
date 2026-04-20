@@ -15,18 +15,25 @@ import {
   DEFAULT_RELEASE_THRESHOLDS,
   type ReleasePolicyResult,
   type ReleaseThresholdSnapshot,
+  ReleasePolicyResultSchema,
   ReleaseThresholdSnapshotSchema,
 } from '../contracts/release-policy';
+import { TimestampIsoSchema } from '../contracts/state';
 import { guardEvidenceValid } from '../core/guards';
 import { evaluateReleasePolicyFromEvidence } from '../core/release-policy';
-import { tallyQuorum, type QuorumTally } from './quorum';
-import { scoreEvidenceBatch, type EvidenceScoreBatch } from './scoring';
+import { QuorumTallySchema, tallyQuorum, type QuorumTally } from './quorum';
+import {
+  EvidenceScoreBatchSchema,
+  scoreEvidenceBatch,
+  type EvidenceScoreBatch,
+} from './scoring';
 
 export const ConsensusInputSchema = z
   .object({
     evidence_batch: EvidenceBatchSchema,
     votes: z.array(ConsensusVoteSchema),
     threshold_snapshot: ReleaseThresholdSnapshotSchema.default(DEFAULT_RELEASE_THRESHOLDS),
+    reference_time: TimestampIsoSchema,
     output: z.string().optional(),
     excluded_agents: z.array(z.string().trim().min(1).max(128)).default([]),
   })
@@ -35,18 +42,13 @@ export type ConsensusInput = z.infer<typeof ConsensusInputSchema>;
 
 export const ConsensusEvaluationSchema = z
   .object({
-    scoring: z.unknown(),
-    quorum: z.unknown(),
-    release_policy_result: z.unknown(),
+    scoring: EvidenceScoreBatchSchema,
+    quorum: QuorumTallySchema,
+    release_policy_result: ReleasePolicyResultSchema,
     result: ConsensusResultSchema,
   })
   .strict();
-export type ConsensusEvaluation = {
-  scoring: EvidenceScoreBatch;
-  quorum: QuorumTally;
-  release_policy_result: ReleasePolicyResult;
-  result: ConsensusResult;
-};
+export type ConsensusEvaluation = z.infer<typeof ConsensusEvaluationSchema>;
 
 function toUniqueAgentIds(agentIds: readonly string[]): string[] {
   return [...new Set(agentIds)];
@@ -176,7 +178,10 @@ export function evaluateConsensus(input: unknown): ConsensusEvaluation {
   const evidenceBatch: EvidenceBatch = parsed.evidence_batch;
 
   const evidenceGuard = guardEvidenceValid(evidenceBatch);
-  const scoring = scoreEvidenceBatch(evidenceBatch);
+  const scoring = scoreEvidenceBatch({
+    evidence_batch: evidenceBatch,
+    reference_time: parsed.reference_time,
+  });
   const thresholdUsed = buildThresholdUsed(parsed.threshold_snapshot);
   const quorum = tallyQuorum({
     votes: parsed.votes,
@@ -197,7 +202,6 @@ export function evaluateConsensus(input: unknown): ConsensusEvaluation {
   const decision = buildDecision(evidenceGuard.passed, quorum, releasePolicyResult);
   const supportVotes = parsed.votes.filter((vote) => vote.vote === 'SUPPORT');
   const oppositionVotes = parsed.votes.filter((vote) => vote.vote === 'OPPOSE');
-  const abstainVotes = parsed.votes.filter((vote) => vote.vote === 'ABSTAIN');
 
   const participatingAgents = toUniqueAgentIds([
     ...quorum.supporting_agents,
@@ -270,7 +274,7 @@ export function parseConsensusInput(input: unknown): ConsensusInput {
   return ConsensusInputSchema.parse(input);
 }
 
-export function parseConsensusEvaluation(input: unknown): ConsensusEvaluationSchema {
+export function parseConsensusEvaluation(input: unknown): ConsensusEvaluation {
   return ConsensusEvaluationSchema.parse(input);
 }
 
