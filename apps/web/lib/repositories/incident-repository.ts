@@ -1,25 +1,24 @@
 import {
   IncidentRecordSchema,
-  IncidentStateSchema,
   createEmptyIncidentState,
   getIncidentById,
   getIncidentsBySeverity,
   getIncidentsByStatus,
   openIncident,
+  parseIncidentState,
   resolveIncident,
   updateIncidentStatus,
+  validateIncidentState,
   type IncidentRecord,
-  type IncidentSeverity,
   type IncidentState,
-  type IncidentStatus,
 } from '../../packages/obs/incidents';
 
 export function parseIncidentRepositoryState(input: unknown): IncidentState {
-  return IncidentStateSchema.parse(input);
+  return parseIncidentState(input);
 }
 
 export function validateIncidentRepositoryState(input: unknown): boolean {
-  return IncidentStateSchema.safeParse(input).success;
+  return validateIncidentState(input);
 }
 
 export function createEmptyIncidentRepositoryState(): IncidentState {
@@ -30,7 +29,8 @@ export function insertIncidentRecord(
   stateInput: unknown,
   recordInput: unknown,
 ): IncidentState {
-  return openIncident(stateInput, IncidentRecordSchema.parse(recordInput));
+  const record = IncidentRecordSchema.parse(recordInput);
+  return openIncident(stateInput, record);
 }
 
 export function getIncidentRecordById(
@@ -67,7 +67,7 @@ export function applyIncidentStatusUpdate(
 ): IncidentState {
   return updateIncidentStatus(stateInput, {
     incident_id: incidentIdInput,
-    status: statusInput as IncidentStatus,
+    status: statusInput,
     updated_at_epoch_ms: updatedAtEpochMsInput,
   });
 }
