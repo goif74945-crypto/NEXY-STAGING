@@ -63,4 +63,38 @@ export function buildOtacPublicView(recordInput: unknown): OtacPublicView {
     nonce: record.nonce,
     policy: record.policy,
     attempts_used: record.attempts_used,
-    status: record
+    status: record.status,
+    ...(record.consumed_at_epoch_ms !== undefined
+      ? { consumed_at_epoch_ms: record.consumed_at_epoch_ms }
+      : {}),
+  });
+}
+
+export function redactOtacRecord(recordInput: unknown): OtacPublicView {
+  return buildOtacPublicView(recordInput);
+}
+
+export function verifyOtacRecordAttempt(
+  recordInput: unknown,
+  payloadInput: unknown,
+): OtacGateResult {
+  const record = OtacRecordSchema.parse(recordInput);
+  const payload = VerifyOtacPayloadSchema.parse(payloadInput);
+
+  const result = verifyOtacAttempt({
+    record,
+    code: payload.code,
+    current_epoch_ms: payload.current_epoch_ms,
+  });
+
+  return OtacGateResultSchema.parse({
+    accepted: result.accepted,
+    reason: result.reason,
+    record: buildOtacPublicView(result.next_record),
+  });
+}
+
+export function createOtacRecordFromPayload(payloadInput: unknown): OtacRecord {
+  const payload = RequestOtacPayloadSchema.parse(payloadInput);
+  return createOtacRecord(payload);
+}
