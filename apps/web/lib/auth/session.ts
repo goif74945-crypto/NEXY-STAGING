@@ -20,7 +20,9 @@ export const BearerTokenExtractionReasonSchema = z.enum([
   'missing_authorization',
   'invalid_authorization_scheme',
   'missing_bearer_token',
+  'invalid_token_format',
 ]);
+export type BearerTokenExtractionReason = z.infer<typeof BearerTokenExtractionReasonSchema>;
 
 export const BearerTokenExtractionResultSchema = z
   .object({
@@ -29,7 +31,6 @@ export const BearerTokenExtractionResultSchema = z
     token: SessionTokenSchema.optional(),
   })
   .strict();
-
 export type BearerTokenExtractionResult = z.infer<typeof BearerTokenExtractionResultSchema>;
 
 const SessionRecordListSchema = z.array(SessionRecordSchema);
@@ -70,12 +71,19 @@ export function extractBearerToken(headerInput: unknown): BearerTokenExtractionR
     });
   }
 
-  const token = SessionTokenSchema.parse(tokenPart);
+  const tokenResult = SessionTokenSchema.safeParse(tokenPart);
+
+  if (!tokenResult.success) {
+    return BearerTokenExtractionResultSchema.parse({
+      found: false,
+      reason: 'invalid_token_format',
+    });
+  }
 
   return BearerTokenExtractionResultSchema.parse({
     found: true,
     reason: 'ok',
-    token,
+    token: tokenResult.data,
   });
 }
 
