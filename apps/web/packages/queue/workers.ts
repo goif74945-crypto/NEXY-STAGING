@@ -154,6 +154,16 @@ function replaceWorker(state: WorkerState, nextWorker: WorkerRecord): WorkerStat
   });
 }
 
+function findClaimedJob(queueState: QueueState, jobId: string): QueueJobRecord {
+  const claimedJob = queueState.jobs.find((job) => job.job_id === jobId);
+
+  if (!claimedJob) {
+    throw new Error(`Claimed job not found after transition: ${jobId}`);
+  }
+
+  return QueueJobRecordSchema.parse(claimedJob);
+}
+
 export function createEmptyWorkerState(): WorkerState {
   return WorkerStateSchema.parse({
     workers: [],
@@ -229,8 +239,9 @@ export function claimNextQueuedJob(
   });
 
   const nextWorker = WorkerRecordSchema.parse({
-    ...worker,
+    worker_id: worker.worker_id,
     status: 'busy',
+    registered_at_epoch_ms: worker.registered_at_epoch_ms,
     last_heartbeat_epoch_ms: claim.claimed_at_epoch_ms,
     current_job_id: claimedJob.job_id,
   });
@@ -242,9 +253,7 @@ export function claimNextQueuedJob(
     reason: 'claimed',
     worker_state: nextWorkerState,
     queue_state: nextQueueState,
-    claimed_job: QueueJobRecordSchema.parse(
-      nextQueueState.jobs.find((job) => job.job_id === claimedJob.job_id) as QueueJobRecord,
-    ),
+    claimed_job: findClaimedJob(nextQueueState, claimedJob.job_id),
   });
 }
 
@@ -252,19 +261,24 @@ export function releaseWorkerClaim(stateInput: unknown, input: unknown): WorkerS
   const state = parseWorkerStateInternal(stateInput);
   const release = ReleaseWorkerClaimInputSchema.parse(input);
 
-  const worker = state.workers.find((existingWorker) => existingWorker.worker_id === release.worker_id);
+  const worker = state.workers.find(
+    (existingWorker) => existingWorker.worker_id === release.worker_id,
+  );
 
   if (!worker) {
     throw new Error(`Worker not found: ${release.worker_id}`);
   }
 
   if (release.released_at_epoch_ms < worker.last_heartbeat_epoch_ms) {
-    throw new Error('released_at_epoch_ms must be greater than or equal to last_heartbeat_epoch_ms.');
+    throw new Error(
+      'released_at_epoch_ms must be greater than or equal to last_heartbeat_epoch_ms.',
+    );
   }
 
   const nextWorker = WorkerRecordSchema.parse({
-    ...worker,
+    worker_id: worker.worker_id,
     status: 'idle',
+    registered_at_epoch_ms: worker.registered_at_epoch_ms,
     last_heartbeat_epoch_ms: release.released_at_epoch_ms,
   });
 
@@ -275,20 +289,35 @@ export function heartbeatWorker(stateInput: unknown, input: unknown): WorkerStat
   const state = parseWorkerStateInternal(stateInput);
   const heartbeat = WorkerHeartbeatInputSchema.parse(input);
 
-  const worker = state.workers.find((existingWorker) => existingWorker.worker_id === heartbeat.worker_id);
+  const worker = state.workers.find(
+    (existingWorker) => existingWorker.worker_id === heartbeat.worker_id,
+  );
 
   if (!worker) {
     throw new Error(`Worker not found: ${heartbeat.worker_id}`);
   }
 
   if (heartbeat.heartbeat_at_epoch_ms < worker.last_heartbeat_epoch_ms) {
-    throw new Error('heartbeat_at_epoch_ms must be greater than or equal to last_heartbeat_epoch_ms.');
+    throw new Error(
+      'heartbeat_at_epoch_ms must be greater than or equal to last_heartbeat_epoch_ms.',
+    );
   }
 
-  const nextWorker = WorkerRecordSchema.parse({
-    ...worker,
-    last_heartbeat_epoch_ms: heartbeat.heartbeat_at_epoch_ms,
-  });
+  const nextWorker =
+    worker.status === 'busy'
+      ? WorkerRecordSchema.parse({
+          worker_id: worker.worker_id,
+          status: 'busy',
+          registered_at_epoch_ms: worker.registered_at_epoch_ms,
+          last_heartbeat_epoch_ms: heartbeat.heartbeat_at_epoch_ms,
+          current_job_id: worker.current_job_id,
+        })
+      : WorkerRecordSchema.parse({
+          worker_id: worker.worker_id,
+          status: worker.status,
+          registered_at_epoch_ms: worker.registered_at_epoch_ms,
+          last_heartbeat_epoch_ms: heartbeat.heartbeat_at_epoch_ms,
+        });
 
   return replaceWorker(state, nextWorker);
 }
@@ -297,14 +326,18 @@ export function markWorkerOffline(stateInput: unknown, input: unknown): WorkerSt
   const state = parseWorkerStateInternal(stateInput);
   const offline = WorkerOfflineInputSchema.parse(input);
 
-  const worker = state.workers.find((existingWorker) => existingWorker.worker_id === offline.worker_id);
+  const worker = state.workers.find(
+    (existingWorker) => existingWorker.worker_id === offline.worker_id,
+  );
 
   if (!worker) {
     throw new Error(`Worker not found: ${offline.worker_id}`);
   }
 
   if (offline.offline_at_epoch_ms < worker.last_heartbeat_epoch_ms) {
-    throw new Error('offline_at_epoch_ms must be greater than or equal to last_heartbeat_epoch_ms.');
+    throw new Error(
+      'offline_at_epoch_ms must be greater than or equal to last_heartbeat_epoch_ms.',
+    );
   }
 
   const nextWorker = WorkerRecordSchema.parse({
