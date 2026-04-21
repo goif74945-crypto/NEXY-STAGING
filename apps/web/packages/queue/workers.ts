@@ -29,7 +29,8 @@ export const WorkerRecordSchema = z
     if (value.last_heartbeat_epoch_ms < value.registered_at_epoch_ms) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'last_heartbeat_epoch_ms must be greater than or equal to registered_at_epoch_ms.',
+        message:
+          'last_heartbeat_epoch_ms must be greater than or equal to registered_at_epoch_ms.',
       });
     }
 
