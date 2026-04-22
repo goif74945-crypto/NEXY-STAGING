@@ -84,36 +84,4 @@ export async function POST(
       status: getHttpStatusFromRouteError(routeError),
     });
   }
-}    return NextResponse.json(
-      buildSuccessEnvelope({
-        state,
-        run,
-      }),
-      {
-        status: 200,
-      },
-    );
-  } catch (error: unknown) {
-    const routeError = toRouteError(error);
-
-    return NextResponse.json(toRouteErrorEnvelope(routeError), {
-      status: getHttpStatusFromRouteError(routeError),
-    });
-  }
-}    return NextResponse.json(
-      buildSuccessEnvelope({
-        state,
-        run,
-      }),
-      {
-        status: 200,
-      },
-    );
-  } catch (error: unknown) {
-    const routeError = toRouteError(error);
-
-    return NextResponse.json(toRouteErrorEnvelope(routeError), {
-      status: getHttpStatusFromRouteError(routeError),
-    });
-  }
-  }
+}
