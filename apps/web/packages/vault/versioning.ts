@@ -38,6 +38,38 @@ export const CommitKeyInputSchema = z
   .strict();
 export type CommitKeyInput = z.infer<typeof CommitKeyInputSchema>;
 
+export function parseVersion(input: unknown): Version {
+  return VersionSchema.parse(input);
+}
+
+export function parseNormalizedVersion(input: unknown): NormalizedVersion {
+  return NormalizedVersionSchema.parse(input);
+}
+
+export function parseRevisionKeyInput(input: unknown): RevisionKeyInput {
+  return RevisionKeyInputSchema.parse(input);
+}
+
+export function parseCommitKeyInput(input: unknown): CommitKeyInput {
+  return CommitKeyInputSchema.parse(input);
+}
+
+export function validateVersion(input: unknown) {
+  return VersionSchema.safeParse(input);
+}
+
+export function validateNormalizedVersion(input: unknown) {
+  return NormalizedVersionSchema.safeParse(input);
+}
+
+export function validateRevisionKeyInput(input: unknown) {
+  return RevisionKeyInputSchema.safeParse(input);
+}
+
+export function validateCommitKeyInput(input: unknown) {
+  return CommitKeyInputSchema.safeParse(input);
+}
+
 const ParsedVersionTupleSchema = z.tuple([
   VersionComponentSchema,
   VersionComponentSchema,

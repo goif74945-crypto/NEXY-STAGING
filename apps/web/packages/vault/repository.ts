@@ -65,16 +65,32 @@ export const RepositoryStateSchema = z
   .strict();
 export type RepositoryState = z.infer<typeof RepositoryStateSchema>;
 
+export function validateRepositoryState(input: unknown) {
+  return RepositoryStateSchema.safeParse(input);
+}
+
 export function parseRepositoryState(input: unknown): RepositoryState {
   return RepositoryStateSchema.parse(input);
+}
+
+export function validateEntitySnapshot(input: unknown) {
+  return EntitySnapshotSchema.safeParse(input);
 }
 
 export function parseEntitySnapshot(input: unknown): EntitySnapshot {
   return EntitySnapshotSchema.parse(input);
 }
 
+export function validateRevisionRecord(input: unknown) {
+  return RevisionRecordSchema.safeParse(input);
+}
+
 export function parseRevisionRecord(input: unknown): RevisionRecord {
   return RevisionRecordSchema.parse(input);
+}
+
+export function validateCommitRecord(input: unknown) {
+  return CommitRecordSchema.safeParse(input);
 }
 
 export function parseCommitRecord(input: unknown): CommitRecord {

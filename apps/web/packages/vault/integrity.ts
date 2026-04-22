@@ -24,6 +24,14 @@ export const DigestSchema = z
   .regex(/^[a-f0-9]{64}$/, 'Digest must be lowercase SHA-256 hex.');
 export type Digest = z.infer<typeof DigestSchema>;
 
+export function parseDigest(input: unknown): Digest {
+  return DigestSchema.parse(input);
+}
+
+export function validateDigest(input: unknown) {
+  return DigestSchema.safeParse(input);
+}
+
 function canonicalizeValue(value: unknown, visited: WeakSet<object>): string {
   if (CanonicalPrimitiveSchema.safeParse(value).success) {
     return JSON.stringify(value);
@@ -94,8 +102,8 @@ export function hashCommit(input: unknown): Digest {
 }
 
 export function verifyIntegrityEquality(leftDigestInput: unknown, rightDigestInput: unknown): boolean {
-  const leftDigest = DigestSchema.parse(leftDigestInput);
-  const rightDigest = DigestSchema.parse(rightDigestInput);
+  const leftDigest = parseDigest(leftDigestInput);
+  const rightDigest = parseDigest(rightDigestInput);
 
   const leftBytes = Buffer.from(leftDigest, 'hex');
   const rightBytes = Buffer.from(rightDigest, 'hex');
