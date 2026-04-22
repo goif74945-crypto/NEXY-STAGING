@@ -55,4 +55,4 @@ export async function POST(request: Request): Promise<NextResponse> {
       status: getHttpStatusFromRouteError(routeError),
     });
   }
-      }
+}
