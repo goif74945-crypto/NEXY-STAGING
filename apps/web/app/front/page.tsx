@@ -1,47 +1,74 @@
+'use client';
+
 import StatusBar from '../../components/shell/status-bar';
-import PulsePreview from '../../components/front/pulse-preview';
-import FrontGate from '../../components/front/front-gate';
-import { buildFrontPulseView } from '../../lib/front/pulse';
-import { classifyFirstContact } from '../../lib/front/first-contact';
+import BuilderPanel from '../../components/architect/builder-panel';
+import PromptConsole from '../../components/dashboard/prompt-console';
+import FinalOutputViewer from '../../components/dashboard/final-output-viewer';
+import ControlStrip from '../../components/shell/control-strip';
 
-const pulse = buildFrontPulseView({
-  active_sessions: 4,
-  open_incidents: 1,
-  queued_jobs: 6,
-  running_jobs: 2,
-  total_runs: 18,
-});
+const controlActions = [
+  {
+    id: 'forge:preview',
+    label: 'Preview',
+    disabled: false,
+    active: true,
+  },
+  {
+    id: 'forge:seal',
+    label: 'Seal',
+    disabled: false,
+    active: false,
+  },
+  {
+    id: 'forge:publish',
+    label: 'Publish',
+    disabled: true,
+    active: false,
+  },
+] as const;
 
-const firstContact = classifyFirstContact({
-  text: 'hello, I need to inspect current system activity',
-  session_known: false,
-  has_history: false,
-});
+const handlePromptChange = (): void => {};
+const handlePromptSubmit = (): void => {};
+const handleActionSelect = (): void => {};
 
-const handleContinue = (): void => {};
-
-export default function FrontPage(): JSX.Element {
+export default function ForgePage(): JSX.Element {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 bg-slate-950 px-6 py-8 text-slate-100">
       <StatusBar
-        title="NEXY Front"
-        status="warning"
+        title="Forge"
+        status="active"
         trustLevel="medium"
-        activeSessions={pulse.counts.active_sessions}
-        openIncidents={pulse.counts.open_incidents}
-        queuedJobs={pulse.counts.queued_jobs}
-        runningJobs={pulse.counts.running_jobs}
+        activeSessions={3}
+        openIncidents={0}
+        queuedJobs={2}
+        runningJobs={1}
       />
 
-      <div className="grid gap-6 lg:grid-cols-[1.35fr_1fr]">
-        <PulsePreview pulse={pulse} />
-        <FrontGate
-          firstContact={firstContact.first_contact}
-          mode={firstContact.suggested_mode}
-          confidence={firstContact.confidence}
-          onContinue={handleContinue}
-        />
-      </div>
+      <BuilderPanel
+        specHash="spec:alpha:0001"
+        artifactHash="artifact:alpha:0001"
+        sealed={false}
+        reproducible={true}
+      />
+
+      <ControlStrip actions={controlActions} onActionSelect={handleActionSelect} />
+
+      <PromptConsole
+        value="Prepare forge output from deterministic sample spec."
+        placeholder="Type forge directive"
+        disabled={false}
+        onChange={handlePromptChange}
+        onSubmit={handlePromptSubmit}
+      />
+
+      <FinalOutputViewer
+        title="Forge Output"
+        content={
+          'Forge preview is using deterministic sample values only.\nNo backend generation is executed on this page.'
+        }
+        status="idle"
+        reasonSummary={['forge_page_sample', 'deterministic_preview']}
+      />
     </main>
   );
 }
