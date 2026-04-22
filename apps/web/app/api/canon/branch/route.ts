@@ -1,0 +1,49 @@
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+
+import { buildSuccessEnvelope } from '../../../../lib/http/envelope';
+import {
+  createRouteError,
+  getHttpStatusFromRouteError,
+  toRouteError,
+  toRouteErrorEnvelope,
+} from '../../../../lib/http/route-error';
+
+const CanonBranchBodySchema = z
+  .object({
+    branch: z.string().trim().min(1).max(256),
+    parent_branch: z.string().trim().min(1).max(256),
+    amendment_count: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export async function POST(request: Request): Promise<NextResponse> {
+  try {
+    let rawBody: unknown;
+
+    try {
+      rawBody = await request.json();
+    } catch {
+      throw createRouteError('bad_request', 'Invalid JSON body.');
+    }
+
+    const body = CanonBranchBodySchema.parse(rawBody);
+
+    return NextResponse.json(
+      buildSuccessEnvelope({
+        branch: body.branch,
+        parent_branch: body.parent_branch,
+        amendment_count: body.amendment_count,
+      }),
+      {
+        status: 200,
+      },
+    );
+  } catch (error: unknown) {
+    const routeError = toRouteError(error);
+
+    return NextResponse.json(toRouteErrorEnvelope(routeError), {
+      status: getHttpStatusFromRouteError(routeError),
+    });
+  }
+}
