@@ -6,7 +6,7 @@ import PromptConsole from '../../components/dashboard/prompt-console';
 import FinalOutputViewer from '../../components/dashboard/final-output-viewer';
 import ControlStrip from '../../components/shell/control-strip';
 
-const controlActions = [
+const forgeActions = [
   {
     id: 'forge:preview',
     label: 'Preview',
@@ -20,8 +20,8 @@ const controlActions = [
     active: false,
   },
   {
-    id: 'forge:publish',
-    label: 'Publish',
+    id: 'forge:export',
+    label: 'Export',
     disabled: true,
     active: false,
   },
@@ -45,17 +45,17 @@ export default function ForgePage(): JSX.Element {
       />
 
       <BuilderPanel
-        specHash="spec:alpha:0001"
-        artifactHash="artifact:alpha:0001"
+        specHash="spec:forge:0001"
+        artifactHash="artifact:forge:0001"
         sealed={false}
         reproducible={true}
       />
 
-      <ControlStrip actions={controlActions} onActionSelect={handleActionSelect} />
+      <ControlStrip actions={forgeActions} onActionSelect={handleActionSelect} />
 
       <PromptConsole
-        value="Prepare forge output from deterministic sample spec."
-        placeholder="Type forge directive"
+        value="Forge deterministic output from the current sealed specification."
+        placeholder="Enter forge directive"
         disabled={false}
         onChange={handlePromptChange}
         onSubmit={handlePromptSubmit}
@@ -64,7 +64,7 @@ export default function ForgePage(): JSX.Element {
       <FinalOutputViewer
         title="Forge Output"
         content={
-          'Forge preview is using deterministic sample values only.\nNo backend generation is executed on this page.'
+          'Forge page foundation is rendering deterministic sample output only.\nNo backend execution is performed on this page.'
         }
         status="idle"
         reasonSummary={['forge_page_sample', 'deterministic_preview']}
