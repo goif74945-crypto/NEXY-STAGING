@@ -33,10 +33,10 @@ const RunKillRouteBodySchema = z
 
 export async function POST(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   try {
-    const params = RunKillParamsSchema.parse(context.params);
+    const params = RunKillParamsSchema.parse(await context.params);
 
     let rawBody: unknown;
 
@@ -69,6 +69,22 @@ export async function POST(
     }
 
     return NextResponse.json(
+      buildSuccessEnvelope({
+        state,
+        run,
+      }),
+      {
+        status: 200,
+      },
+    );
+  } catch (error: unknown) {
+    const routeError = toRouteError(error);
+
+    return NextResponse.json(toRouteErrorEnvelope(routeError), {
+      status: getHttpStatusFromRouteError(routeError),
+    });
+  }
+}    return NextResponse.json(
       buildSuccessEnvelope({
         state,
         run,
