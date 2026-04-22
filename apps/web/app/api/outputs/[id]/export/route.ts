@@ -72,4 +72,8 @@ export async function POST(
       status: getHttpStatusFromRouteError(routeError),
     });
   }
+        }    return NextResponse.json(toRouteErrorEnvelope(routeError), {
+      status: getHttpStatusFromRouteError(routeError),
+    });
+  }
 }​
