@@ -1,35 +1,30 @@
-import type { ChangeEvent } from 'react';
+import MainInput from '../shell/main-input';
 
-import type { IntentMode } from '../../lib/types/intent-mode';
-
-export type ModeSwitcherProps = {
-  value: IntentMode;
+export type PromptConsoleProps = {
+  value: string;
+  placeholder: string;
   disabled: boolean;
-  onChange: (nextValue: IntentMode) => void;
+  onChange: (nextValue: string) => void;
+  onSubmit: () => void;
 };
 
-const MODE_OPTIONS: readonly IntentMode[] = ['owner', 'operator', 'viewer', 'unknown'];
-
-export default function ModeSwitcher(props: ModeSwitcherProps): JSX.Element {
-  const handleChange = (event: ChangeEvent<HTMLSelectElement>): void => {
-    props.onChange(event.target.value as IntentMode);
-  };
-
+export default function PromptConsole(props: PromptConsoleProps): JSX.Element {
   return (
-    <label className="flex flex-col gap-2 text-sm text-slate-100">
-      <span className="font-medium">Mode</span>
-      <select
+    <section
+      className="rounded-xl border border-slate-800 bg-slate-950 p-4"
+      aria-label="Prompt console"
+    >
+      <div className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-100">
+        Prompt Console
+      </div>
+
+      <MainInput
         value={props.value}
+        placeholder={props.placeholder}
         disabled={props.disabled}
-        onChange={handleChange}
-        className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {MODE_OPTIONS.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    </label>
+        onChange={props.onChange}
+        onSubmit={props.onSubmit}
+      />
+    </section>
   );
 }
