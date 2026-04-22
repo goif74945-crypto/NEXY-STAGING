@@ -1,5 +1,3 @@
-'use client';
-
 import ProjectTree from '../../../components/vault/project-tree';
 import TimelineView from '../../../components/vault/timeline-view';
 import VaultBrowser from '../../../components/vault/vault-browser';
@@ -8,7 +6,8 @@ type ProjectDetailPageProps = {
   params: Promise<{ id: string }>;
 };
 
-const handleSelect = (): void => {};
+const handleTreeSelect = (): void => {};
+const handleVaultSelect = (): void => {};
 
 export default async function ProjectDetailPage(
   props: ProjectDetailPageProps,
@@ -92,8 +91,8 @@ export default async function ProjectDetailPage(
       </header>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_1.2fr]">
-        <ProjectTree nodes={projectNodes} onSelect={handleSelect} />
-        <VaultBrowser items={vaultItems} onSelect={handleSelect} />
+        <ProjectTree nodes={projectNodes} onSelect={handleTreeSelect} />
+        <VaultBrowser items={vaultItems} onSelect={handleVaultSelect} />
       </div>
 
       <TimelineView entries={timelineEntries} locale="en-US" />
