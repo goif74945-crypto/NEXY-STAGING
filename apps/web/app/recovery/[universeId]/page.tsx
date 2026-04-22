@@ -1,5 +1,3 @@
-'use client';
-
 import RecoveryGate from '../../../components/recovery/recovery-gate';
 import ExactReplayCard from '../../../components/recovery/exact-replay-card';
 import CleanRebootCard from '../../../components/recovery/clean-reboot-card';
