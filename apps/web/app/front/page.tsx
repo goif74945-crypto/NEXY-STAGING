@@ -1,74 +1,49 @@
 'use client';
 
 import StatusBar from '../../components/shell/status-bar';
-import BuilderPanel from '../../components/architect/builder-panel';
-import PromptConsole from '../../components/dashboard/prompt-console';
-import FinalOutputViewer from '../../components/dashboard/final-output-viewer';
-import ControlStrip from '../../components/shell/control-strip';
+import PulsePreview from '../../components/front/pulse-preview';
+import FrontGate from '../../components/front/front-gate';
+import { buildFrontPulseView } from '../../lib/front/pulse';
+import { classifyFirstContact } from '../../lib/front/first-contact';
 
-const forgeActions = [
-  {
-    id: 'forge:preview',
-    label: 'Preview',
-    disabled: false,
-    active: true,
-  },
-  {
-    id: 'forge:seal',
-    label: 'Seal',
-    disabled: false,
-    active: false,
-  },
-  {
-    id: 'forge:publish',
-    label: 'Publish',
-    disabled: true,
-    active: false,
-  },
-] as const;
+const pulse = buildFrontPulseView({
+  active_sessions: 4,
+  open_incidents: 1,
+  queued_jobs: 6,
+  running_jobs: 2,
+  total_runs: 18,
+});
 
-const handlePromptChange = (): void => {};
-const handlePromptSubmit = (): void => {};
-const handleActionSelect = (): void => {};
+const firstContact = classifyFirstContact({
+  text: 'hello, I need to inspect current system activity',
+  session_known: false,
+  has_history: false,
+});
 
-export default function ForgePage(): JSX.Element {
+const handleContinue = (): void => {};
+
+export default function FrontPage(): JSX.Element {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 bg-slate-950 px-6 py-8 text-slate-100">
       <StatusBar
-        title="Forge"
-        status="active"
+        title="NEXY Front"
+        status="warning"
         trustLevel="medium"
-        activeSessions={3}
-        openIncidents={0}
-        queuedJobs={2}
-        runningJobs={1}
+        activeSessions={pulse.counts.active_sessions}
+        openIncidents={pulse.counts.open_incidents}
+        queuedJobs={pulse.counts.queued_jobs}
+        runningJobs={pulse.counts.running_jobs}
       />
 
-      <BuilderPanel
-        specHash="spec:forge:0001"
-        artifactHash="artifact:forge:0001"
-        sealed={false}
-        reproducible={true}
-      />
-
-      <ControlStrip actions={forgeActions} onActionSelect={handleActionSelect} />
-
-      <PromptConsole
-        value="Forge deterministic output from the current sealed specification."
-        placeholder="Enter forge directive"
-        disabled={false}
-        onChange={handlePromptChange}
-        onSubmit={handlePromptSubmit}
-      />
-
-      <FinalOutputViewer
-        title="Forge Output"
-        content={
-          'Forge page foundation is rendering deterministic sample output only.\nNo backend execution is performed on this page.'
-        }
-        status="idle"
-        reasonSummary={['forge_page_sample', 'deterministic_preview']}
-      />
+      <div className="grid gap-6 lg:grid-cols-[1.35fr_1fr]">
+        <PulsePreview pulse={pulse} />
+        <FrontGate
+          firstContact={firstContact.first_contact}
+          mode={firstContact.suggested_mode}
+          confidence={firstContact.confidence}
+          onContinue={handleContinue}
+        />
+      </div>
     </main>
   );
 }
