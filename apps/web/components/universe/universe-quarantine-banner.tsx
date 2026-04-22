@@ -16,7 +16,9 @@ export default function UniverseQuarantineBanner(
       aria-label="Universe quarantine banner"
     >
       <div className="text-sm font-semibold uppercase tracking-wide">Quarantined</div>
-      <div className="mt-1 text-sm">{props.reason.trim() ? props.reason : 'No reason provided'}</div>
+      <div className="mt-1 text-sm">
+        {props.reason.trim().length > 0 ? props.reason : 'No reason provided'}
+      </div>
     </section>
   );
-}ำ
+}
