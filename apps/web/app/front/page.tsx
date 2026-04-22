@@ -20,8 +20,8 @@ const forgeActions = [
     active: false,
   },
   {
-    id: 'forge:export',
-    label: 'Export',
+    id: 'forge:publish',
+    label: 'Publish',
     disabled: true,
     active: false,
   },
