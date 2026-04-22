@@ -28,10 +28,10 @@ const ArtifactLockRouteBodySchema = z
 
 export async function POST(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   try {
-    const params = ArtifactLockParamsSchema.parse(context.params);
+    const params = ArtifactLockParamsSchema.parse(await context.params);
 
     let rawBody: unknown;
 
@@ -64,4 +64,4 @@ export async function POST(
       status: getHttpStatusFromRouteError(routeError),
     });
   }
-  }
+            }
