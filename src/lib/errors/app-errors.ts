@@ -71,6 +71,80 @@ export type ErrorInfo = z.infer<typeof ErrorInfoSchema>;
 export const ErrorCodeSetSchema = z.array(ErrorCodeSchema);
 export type ErrorCodeSet = z.infer<typeof ErrorCodeSetSchema>;
 
+export type AppErrorInput = {
+  code: ErrorCode;
+  message: string;
+  statusCode: number;
+  source?: string;
+  recoverable?: boolean;
+  details?: ErrorDetails;
+};
+
+export class AppError extends Error {
+  readonly code: ErrorCode;
+  readonly statusCode: number;
+  readonly source: string;
+  readonly recoverable: boolean;
+  readonly details?: ErrorDetails;
+
+  constructor(input: AppErrorInput) {
+    super(input.message);
+    this.name = 'AppError';
+    this.code = ErrorCodeSchema.parse(input.code);
+    this.statusCode = z.number().int().min(400).max(599).parse(input.statusCode);
+    this.source = ErrorSourceSchema.parse(input.source ?? 'application');
+    this.recoverable = input.recoverable ?? false;
+    this.details = input.details;
+  }
+}
+
+export type InternalAppErrorInput = {
+  message?: string;
+  cause?: string;
+  details?: ErrorDetails;
+};
+
+export class InternalAppError extends AppError {
+  constructor(input: InternalAppErrorInput = {}) {
+    const details =
+      input.details ??
+      (input.cause !== undefined
+        ? {
+            cause: input.cause,
+          }
+        : undefined);
+
+    super({
+      code: 'UNKNOWN_INTERNAL_ERROR',
+      message: input.message ?? 'An internal error occurred.',
+      statusCode: 500,
+      source: 'internal',
+      recoverable: false,
+      details,
+    });
+    this.name = 'InternalAppError';
+  }
+}
+
+export type ValidationAppErrorInput = {
+  message?: string;
+  details?: ErrorDetails;
+};
+
+export class ValidationAppError extends AppError {
+  constructor(input: ValidationAppErrorInput = {}) {
+    super({
+      code: 'SCHEMA_VIOLATION',
+      message: input.message ?? 'The submitted payload is invalid.',
+      statusCode: 400,
+      source: 'validation',
+      recoverable: true,
+      details: input.details,
+    });
+    this.name = 'ValidationAppError';
+  }
+}
+
 export function isErrorCode(value: unknown): value is ErrorCode {
   return ErrorCodeSchema.safeParse(value).success;
 }
