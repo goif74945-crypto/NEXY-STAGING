@@ -1,34 +1,47 @@
-import { ValidationAppError } from '@/lib/errors/app-errors';
+import { z } from 'zod';
 
-export function assertNonEmptyString(value: unknown, fieldName: string): string {
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw new ValidationAppError({
-      field: fieldName,
-      reason: 'Expected a non-empty string.',
-    });
-  }
+export const ValidationIssueSchema = z
+  .object({
+    path: z.array(z.string()),
+    message: z.string().trim().min(1),
+    code: z.string().trim().min(1),
+  })
+  .strict();
 
-  return value.trim();
+export const ValidationResultSchema = z
+  .object({
+    valid: z.boolean(),
+    issues: z.array(ValidationIssueSchema),
+  })
+  .strict();
+
+export type ValidationIssue = z.infer<typeof ValidationIssueSchema>;
+export type ValidationResult = z.infer<typeof ValidationResultSchema>;
+
+export function buildValidationResult(input: {
+  valid: boolean;
+  issues: ValidationIssue[];
+}): ValidationResult {
+  return ValidationResultSchema.parse({
+    valid: input.valid,
+    issues: input.issues,
+  });
 }
 
-export function assertBoolean(value: unknown, fieldName: string): boolean {
-  if (typeof value !== 'boolean') {
-    throw new ValidationAppError({
-      field: fieldName,
-      reason: 'Expected a boolean value.',
-    });
-  }
+export function buildValidationFailure(
+  issues: ValidationIssue[],
+): ValidationResult {
+  const parsedIssues = z.array(ValidationIssueSchema).parse(issues);
 
-  return value;
+  return ValidationResultSchema.parse({
+    valid: false,
+    issues: parsedIssues,
+  });
 }
 
-export function assertPositiveInteger(value: unknown, fieldName: string): number {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
-    throw new ValidationAppError({
-      field: fieldName,
-      reason: 'Expected a positive integer.',
-    });
-  }
-
-  return value;
+export function buildValidationSuccess(): ValidationResult {
+  return ValidationResultSchema.parse({
+    valid: true,
+    issues: [],
+  });
 }
