@@ -5,5 +5,3 @@ export function redirect(destination: string): never {
 export function notFound(): never {
   throw new Error('notFound');
 }
-
-FILE: tests/stubs/pris
