@@ -7,6 +7,7 @@ import {
   toRouteError,
   toRouteErrorEnvelope,
 } from '@/lib/http/route-error';
+import { OutputClassSchema } from '@/lib/types/output-class';
 
 const GET_REQUEST_ID = 'runs_get';
 const POST_REQUEST_ID = 'runs_post';
@@ -18,7 +19,7 @@ const RunSchema = z
     status: z.string().trim().min(1).max(128),
     started_at_epoch_ms: z.number().int().nonnegative(),
     updated_at_epoch_ms: z.number().int().nonnegative(),
-    output_class: z.string().trim().max(256),
+    output_class: OutputClassSchema,
     freeze_reason: z.string().trim().max(4096),
   })
   .strict();
@@ -32,7 +33,7 @@ const RUNS = [
     status: 'stable',
     started_at_epoch_ms: 1_700_000_000_000,
     updated_at_epoch_ms: 1_700_000_010_000,
-    output_class: 'verified',
+    output_class: 'FINAL',
     freeze_reason: '',
   }),
 ];
