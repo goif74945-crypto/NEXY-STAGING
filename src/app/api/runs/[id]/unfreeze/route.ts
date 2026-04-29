@@ -1,12 +1,20 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
+import {
+  getAuthFixtureNowEpochMs,
+  getCurrentSessionFixture,
+} from '@/lib/auth/session';
 import { makeEnvelope } from '@/lib/http/envelope';
 import {
   getHttpStatusFromRouteError,
   toRouteError,
   toRouteErrorEnvelope,
 } from '@/lib/http/route-error';
+import {
+  UnfreezeRunWithAuthorityBodySchema,
+  unfreezeRunWithAuthority,
+} from '@/lib/run/state-control';
 
 const REQUEST_ID = 'runs_id_unfreeze_post';
 
@@ -16,34 +24,23 @@ const ParamsSchema = z
   })
   .strict();
 
-const BodySchema = z
-  .object({
-    next_status: z.enum(['queued', 'running', 'verifying', 'stable']),
-    updated_at_epoch_ms: z.number().int().nonnegative(),
-  })
-  .strict();
-
-const UnfrozenRunSchema = z
-  .object({
-    run_id: z.string().trim().min(1).max(256),
-    status: z.enum(['queued', 'running', 'verifying', 'stable']),
-    freeze_reason: z.literal(''),
-    updated_at_epoch_ms: z.number().int().nonnegative(),
-  })
-  .strict();
-
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   try {
     const params = ParamsSchema.parse(await context.params);
-    const body = BodySchema.parse(await request.json());
-    const run = UnfrozenRunSchema.parse({
+    const body = UnfreezeRunWithAuthorityBodySchema.parse(await request.json());
+    const session = getCurrentSessionFixture();
+    const result = unfreezeRunWithAuthority({
       run_id: params.id,
-      status: body.next_status,
-      freeze_reason: '',
-      updated_at_epoch_ms: body.updated_at_epoch_ms,
+      session,
+      now_epoch_ms: getAuthFixtureNowEpochMs(),
+      actor_id: session.user_id,
+      authority_source: body.authority_source,
+      reason_code: body.reason_code,
+      controlled_at_epoch_ms: body.controlled_at_epoch_ms,
+      current_status: body.current_status,
     });
 
     return NextResponse.json(
@@ -51,7 +48,8 @@ export async function POST(
         status: 'OK',
         requestId: REQUEST_ID,
         data: {
-          run,
+          auth_mode: 'deterministic_fixture_not_production',
+          result,
         },
       }),
       {
