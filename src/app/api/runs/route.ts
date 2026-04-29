@@ -8,7 +8,7 @@ import {
 } from '@/lib/http/route-error';
 import {
   listRuns,
-  RunRepositoryRecordSchema,
+  rejectClientRunCreation,
 } from '@/lib/repositories/run-repository';
 
 const GET_REQUEST_ID = 'runs_get';
@@ -37,22 +37,9 @@ export function GET(): NextResponse {
   }
 }
 
-export async function POST(request: Request): Promise<NextResponse> {
+export function POST(): NextResponse {
   try {
-    const run = RunRepositoryRecordSchema.parse(await request.json());
-
-    return NextResponse.json(
-      makeEnvelope({
-        status: 'OK',
-        requestId: POST_REQUEST_ID,
-        data: {
-          run,
-        },
-      }),
-      {
-        status: 200,
-      },
-    );
+    rejectClientRunCreation();
   } catch (error: unknown) {
     const routeError = toRouteError(error);
 
