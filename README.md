@@ -1,30 +1,45 @@
 # NEXY-STAGING
 
-Clean rebuild workspace for NEXY.
+NEXY-STAGING is a clean deterministic staging root for the NEXY.AI rebuild.
 
-## Current status
-- Purpose: Pack 1 foundation only
-- Stack baseline: Next.js App Router + TypeScript + Prisma + PostgreSQL
-- Rule: no legacy prototype files from the old `NEXY` demo branch are reused here
+## Canonical Root
 
-## Pack 1 scope
-- project boot files
-- environment loader
-- Prisma client bootstrap
-- id utilities
-- base application errors
-- envelope helpers
-- route error mapping helper
-- auth session type skeleton
-- root layout and home page
+The canonical root is `src/...`.
 
-## Runtime requirements
-- Node.js 20.9+ for Next.js 16.x
-- PostgreSQL connection via `DATABASE_URL`
+`apps/web/**` must not be used by the root build.
 
-## Commands
-```bash
-npm install
-npm run prisma:generate
-npm run dev
-```
+The root build must not depend on legacy prototype files.
+
+## Root Set Status
+
+- SET ROOT-01 = VERIFIED
+- SET ROOT-02 = VERIFIED
+- SET ROOT-03 = VERIFIED
+- SET ROOT-04 = FOUNDATION LOCK
+
+## Foundation Lock
+
+- Keep `src/...` as the canonical root.
+- Do not import from `apps/web/**`.
+- Do not depend on legacy prototype files.
+- Do not rename locked modules, functions, types, or paths without an explicit instruction.
+- Do not refactor architecture without an explicit instruction.
+- Do not add dependencies without an explicit instruction.
+- Do not use runtime clocks in deterministic foundation code.
+- Do not use runtime random values in deterministic foundation code.
+- Do not use database, filesystem, or network calls in deterministic foundation code.
+
+## Verification Commands
+
+- `npm install`
+- `npm run typecheck`
+- `npm run build`
+- `npm test`
+
+Global deployability requires real logs from the target environment.
+
+Do not claim this repository is deployable without verification logs.
+
+Do not claim this repository is production ready without verification logs.
+
+Do not claim typecheck, build, or tests passed without command logs.
