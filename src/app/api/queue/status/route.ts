@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { z } from 'zod';
 
 import { makeEnvelope } from '@/lib/http/envelope';
 import {
@@ -7,26 +6,9 @@ import {
   toRouteError,
   toRouteErrorEnvelope,
 } from '@/lib/http/route-error';
+import { getQueueStatus } from '@/lib/repositories/telemetry-repository';
 
 const REQUEST_ID = 'queue_status_get';
-
-const QueueStatusSchema = z
-  .object({
-    queued: z.number().int().nonnegative(),
-    running: z.number().int().nonnegative(),
-    succeeded: z.number().int().nonnegative(),
-    failed: z.number().int().nonnegative(),
-    cancelled: z.number().int().nonnegative(),
-  })
-  .strict();
-
-const QUEUE_STATUS = QueueStatusSchema.parse({
-  queued: 3,
-  running: 1,
-  succeeded: 12,
-  failed: 1,
-  cancelled: 0,
-});
 
 export function GET(): NextResponse {
   try {
@@ -34,7 +16,7 @@ export function GET(): NextResponse {
       makeEnvelope({
         status: 'OK',
         requestId: REQUEST_ID,
-        data: QUEUE_STATUS,
+        data: getQueueStatus(),
       }),
       {
         status: 200,
