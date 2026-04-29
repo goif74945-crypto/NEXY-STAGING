@@ -1,62 +1,19 @@
-type RequiredEnvKey =
-  | 'NODE_ENV'
-  | 'APP_BASE_URL'
-  | 'DATABASE_URL'
-  | 'SESSION_COOKIE_NAME'
-  | 'SESSION_TTL_MINUTES'
-  | 'OTAC_TTL_MINUTES';
+import { z } from 'zod';
 
-export type AppEnv = {
-  nodeEnv: 'development' | 'test' | 'production';
-  appBaseUrl: string;
-  databaseUrl: string;
-  sessionCookieName: string;
-  sessionTtlMinutes: number;
-  otacTtlMinutes: number;
-};
+export const EnvSchema = z
+  .object({
+    DATABASE_URL: z.string().trim().min(1),
+    NEXY_ENV: z.enum(['development', 'test', 'production']),
+    NEXY_AUTH_SECRET: z.string().trim().min(1),
+  })
+  .strict();
 
-const REQUIRED_ENV_KEYS: RequiredEnvKey[] = [
-  'NODE_ENV',
-  'APP_BASE_URL',
-  'DATABASE_URL',
-  'SESSION_COOKIE_NAME',
-  'SESSION_TTL_MINUTES',
-  'OTAC_TTL_MINUTES',
-];
+export type Env = z.infer<typeof EnvSchema>;
 
-function getRequiredEnv(key: RequiredEnvKey): string {
-  const value = process.env[key];
-
-  if (!value || value.trim() === '') {
-    throw new Error(`Missing required environment variable: ${key}`);
-  }
-
-  return value;
+export function parseEnv(input: unknown): Env {
+  return EnvSchema.parse(input);
 }
 
-function getPositiveInteger(key: 'SESSION_TTL_MINUTES' | 'OTAC_TTL_MINUTES'): number {
-  const value = Number(getRequiredEnv(key));
-
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new Error(`Environment variable ${key} must be a positive integer.`);
-  }
-
-  return value;
+export function buildEnv(input: unknown): Env {
+  return parseEnv(input);
 }
-
-function assertAllRequiredEnvPresent(): void {
-  for (const key of REQUIRED_ENV_KEYS) {
-    getRequiredEnv(key);
-  }
-}
-
-assertAllRequiredEnvPresent();
-
-export const appEnv: AppEnv = {
-  nodeEnv: getRequiredEnv('NODE_ENV') as AppEnv['nodeEnv'],
-  appBaseUrl: getRequiredEnv('APP_BASE_URL'),
-  databaseUrl: getRequiredEnv('DATABASE_URL'),
-  sessionCookieName: getRequiredEnv('SESSION_COOKIE_NAME'),
-  sessionTtlMinutes: getPositiveInteger('SESSION_TTL_MINUTES'),
-  otacTtlMinutes: getPositiveInteger('OTAC_TTL_MINUTES'),
-};
