@@ -9,9 +9,49 @@ export const ArtifactRepositoryRecordSchema = z
   })
   .strict();
 
+export const OutputExportFormatSchema = z.enum(['json', 'markdown', 'pdf']);
+export const OutputExportStatusSchema = z.enum(['ready', 'blocked']);
+
+export const OutputExportDescriptorSchema = z
+  .object({
+    output_id: z.string().trim().min(1).max(256),
+    format: OutputExportFormatSchema,
+    content_hash: z.string().trim().min(1).max(256),
+    export_status: OutputExportStatusSchema,
+  })
+  .strict();
+
+export const ArtifactLockBodySchema = z
+  .object({
+    locked_by: z.string().trim().min(1).max(256),
+    reason: z.string().trim().min(1).max(4096),
+  })
+  .strict();
+
+export const ArtifactLockInputSchema = ArtifactLockBodySchema.extend({
+  artifact_id: z.string().trim().min(1).max(256),
+}).strict();
+
+export const ArtifactLockResultSchema = z
+  .object({
+    artifact_id: z.string().trim().min(1).max(256),
+    locked: z.literal(true),
+    locked_by: z.string().trim().min(1).max(256),
+    reason: z.string().trim().min(1).max(4096),
+  })
+  .strict();
+
 export type ArtifactRepositoryRecord = z.infer<
   typeof ArtifactRepositoryRecordSchema
 >;
+export type OutputExportFormat = z.infer<typeof OutputExportFormatSchema>;
+export type OutputExportStatus = z.infer<typeof OutputExportStatusSchema>;
+export type OutputExportDescriptor = z.infer<
+  typeof OutputExportDescriptorSchema
+>;
+export type ArtifactLockBody = z.infer<typeof ArtifactLockBodySchema>;
+export type ArtifactLockInput = z.infer<typeof ArtifactLockInputSchema>;
+export type ArtifactLockResult = z.infer<typeof ArtifactLockResultSchema>;
 
 function buildArtifactRecords(): ArtifactRepositoryRecord[] {
   return [
@@ -53,4 +93,26 @@ export function getArtifactById(
   );
 
   return artifact === undefined ? null : cloneArtifactRecord(artifact);
+}
+
+export function buildOutputExportDescriptor(
+  outputId: string,
+): OutputExportDescriptor {
+  return OutputExportDescriptorSchema.parse({
+    output_id: outputId,
+    format: 'json',
+    content_hash: `content_hash:${outputId}`,
+    export_status: 'ready',
+  });
+}
+
+export function lockArtifact(input: ArtifactLockInput): ArtifactLockResult {
+  const parsed = ArtifactLockInputSchema.parse(input);
+
+  return ArtifactLockResultSchema.parse({
+    artifact_id: parsed.artifact_id,
+    locked: true,
+    locked_by: parsed.locked_by,
+    reason: parsed.reason,
+  });
 }
