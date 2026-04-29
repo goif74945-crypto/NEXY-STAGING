@@ -1,5 +1,15 @@
 import { z } from 'zod';
 
+export const QueueStatusSchema = z
+  .object({
+    queued: z.number().int().nonnegative(),
+    running: z.number().int().nonnegative(),
+    succeeded: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+    cancelled: z.number().int().nonnegative(),
+  })
+  .strict();
+
 export const RunTelemetrySchema = z
   .object({
     total_runs: z.number().int().nonnegative(),
@@ -21,8 +31,19 @@ export const SystemTelemetrySchema = z
   })
   .strict();
 
+export type QueueStatus = z.infer<typeof QueueStatusSchema>;
 export type RunTelemetry = z.infer<typeof RunTelemetrySchema>;
 export type SystemTelemetry = z.infer<typeof SystemTelemetrySchema>;
+
+export function getQueueStatus(): QueueStatus {
+  return QueueStatusSchema.parse({
+    queued: 3,
+    running: 1,
+    succeeded: 12,
+    failed: 1,
+    cancelled: 0,
+  });
+}
 
 export function getRunTelemetry(): RunTelemetry {
   return RunTelemetrySchema.parse({
