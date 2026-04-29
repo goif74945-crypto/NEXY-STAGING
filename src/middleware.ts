@@ -1,15 +1,9 @@
 import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
 
-import { createRequestId } from '@/lib/utils/ids';
-
-export function middleware(request: NextRequest) {
-  const requestHeaders = new Headers(request.headers);
-  requestHeaders.set('x-request-id', createRequestId('mw'));
-
-  return NextResponse.next({
-    request: {
-      headers: requestHeaders,
-    },
-  });
+export function middleware(): NextResponse {
+  return NextResponse.next();
 }
+
+export const config = {
+  matcher: '/((?!_next/static|_next/image|favicon.ico).*)',
+};
