@@ -1,12 +1,20 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
+import {
+  getAuthFixtureNowEpochMs,
+  getCurrentSessionFixture,
+} from '@/lib/auth/session';
 import { makeEnvelope } from '@/lib/http/envelope';
 import {
   getHttpStatusFromRouteError,
   toRouteError,
   toRouteErrorEnvelope,
 } from '@/lib/http/route-error';
+import {
+  FreezeRunWithAuthorityBodySchema,
+  freezeRunWithAuthority,
+} from '@/lib/run/state-control';
 
 const REQUEST_ID = 'runs_id_freeze_post';
 
@@ -16,34 +24,22 @@ const ParamsSchema = z
   })
   .strict();
 
-const BodySchema = z
-  .object({
-    freeze_reason: z.string().trim().min(1).max(4096),
-    updated_at_epoch_ms: z.number().int().nonnegative(),
-  })
-  .strict();
-
-const FrozenRunSchema = z
-  .object({
-    run_id: z.string().trim().min(1).max(256),
-    status: z.literal('freeze'),
-    freeze_reason: z.string().trim().min(1).max(4096),
-    updated_at_epoch_ms: z.number().int().nonnegative(),
-  })
-  .strict();
-
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   try {
     const params = ParamsSchema.parse(await context.params);
-    const body = BodySchema.parse(await request.json());
-    const run = FrozenRunSchema.parse({
+    const body = FreezeRunWithAuthorityBodySchema.parse(await request.json());
+    const session = getCurrentSessionFixture();
+    const result = freezeRunWithAuthority({
       run_id: params.id,
-      status: 'freeze',
-      freeze_reason: body.freeze_reason,
-      updated_at_epoch_ms: body.updated_at_epoch_ms,
+      session,
+      now_epoch_ms: getAuthFixtureNowEpochMs(),
+      actor_id: session.user_id,
+      authority_source: body.authority_source,
+      reason_code: body.reason_code,
+      controlled_at_epoch_ms: body.controlled_at_epoch_ms,
     });
 
     return NextResponse.json(
@@ -51,7 +47,8 @@ export async function POST(
         status: 'OK',
         requestId: REQUEST_ID,
         data: {
-          run,
+          auth_mode: 'deterministic_fixture_not_production',
+          result,
         },
       }),
       {
