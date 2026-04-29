@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 
+import {
+  getAuthFixtureNowEpochMs,
+  getCurrentSessionFixture,
+} from '@/lib/auth/session';
 import { requireSession } from '@/lib/auth/require-session';
 import { makeEnvelope } from '@/lib/http/envelope';
 import {
@@ -7,34 +11,24 @@ import {
   toRouteError,
   toRouteErrorEnvelope,
 } from '@/lib/http/route-error';
-import { buildDeterministicSession } from '@/lib/auth/session';
 
 const REQUEST_ID = 'auth_me_get';
-const NOW_EPOCH_MS = 1_700_000_000_000;
-
-const CURRENT_SESSION = buildDeterministicSession({
-  session_id: 'session_owner_001',
-  user_id: 'user_owner_001',
-  email: 'owner@nexy.local',
-  role: 'OWNER',
-  device_id: 'device_owner_001',
-  issued_at_epoch_ms: 1_699_999_000_000,
-  expires_at_epoch_ms: 1_800_000_000_000,
-  revoked_at_epoch_ms: null,
-});
 
 export function GET(): NextResponse {
   try {
     const result = requireSession({
-      session: CURRENT_SESSION,
-      now_epoch_ms: NOW_EPOCH_MS,
+      session: getCurrentSessionFixture(),
+      now_epoch_ms: getAuthFixtureNowEpochMs(),
     });
 
     return NextResponse.json(
       makeEnvelope({
         status: 'OK',
         requestId: REQUEST_ID,
-        data: result,
+        data: {
+          auth_mode: 'deterministic_fixture_not_production',
+          result,
+        },
       }),
       {
         status: 200,
