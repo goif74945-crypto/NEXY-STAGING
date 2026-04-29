@@ -1,38 +1,45 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createEntityId, createRequestId } from '../src/lib/utils/ids';
-import { makeEnvelope } from '../src/lib/http/envelope';
-import { FAILURE_MAP } from '../src/lib/errors/failure-map';
+import { buildHttpError } from '../src/lib/http/errors';
+import { evaluateReleasePolicy } from '../src/lib/http/release-policy';
+import { parseMode } from '../src/lib/types/modes';
+import { parseOutputClass } from '../src/lib/types/output-class';
 
-test('createRequestId prefixes generated ids', () => {
-  const id = createRequestId('pack1');
-
-  assert.match(id, /^pack1_[a-f0-9]+$/);
+test('parseMode accepts VIEW', () => {
+  assert.equal(parseMode('VIEW'), 'VIEW');
 });
 
-test('createEntityId prefixes generated ids', () => {
-  const id = createEntityId('run');
-
-  assert.match(id, /^run_[a-f0-9]+$/);
+test('parseOutputClass accepts FINAL', () => {
+  assert.equal(parseOutputClass('FINAL'), 'FINAL');
 });
 
-test('makeEnvelope returns normalized payload shape', () => {
-  const result = makeEnvelope({
-    status: 'OK',
-    requestId: 'req_1',
-    data: { ok: true },
+test('buildHttpError returns deterministic http error descriptor', () => {
+  const error = buildHttpError({
+    code: 'NOT_FOUND',
+    status: 404,
+    message: 'Target was not found.',
+    recoverable: false,
   });
 
-  assert.deepEqual(result, {
-    status: 'OK',
-    requestId: 'req_1',
-    data: { ok: true },
-    error: null,
+  assert.deepEqual(error, {
+    code: 'NOT_FOUND',
+    status: 404,
+    message: 'Target was not found.',
+    recoverable: false,
   });
 });
 
-test('failure map keeps internal error retryable', () => {
-  assert.equal(FAILURE_MAP.INTERNAL_ERROR.httpStatus, 500);
-  assert.equal(FAILURE_MAP.INTERNAL_ERROR.retryable, true);
+test('evaluateReleasePolicy allows verified FINAL output without open incident', () => {
+  const decision = evaluateReleasePolicy({
+    validated: true,
+    verified: true,
+    has_open_incident: false,
+    output_class: 'FINAL',
+  });
+
+  assert.deepEqual(decision, {
+    release_allowed: true,
+    reason: 'ok',
+  });
 });
