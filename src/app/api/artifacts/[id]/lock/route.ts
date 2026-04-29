@@ -7,6 +7,10 @@ import {
   toRouteError,
   toRouteErrorEnvelope,
 } from '@/lib/http/route-error';
+import {
+  ArtifactLockBodySchema,
+  lockArtifact,
+} from '@/lib/repositories/artifact-repository';
 
 const REQUEST_ID = 'artifacts_id_lock_post';
 
@@ -16,32 +20,15 @@ const ParamsSchema = z
   })
   .strict();
 
-const LockBodySchema = z
-  .object({
-    locked_by: z.string().trim().min(1).max(256),
-    reason: z.string().trim().min(1).max(4096),
-  })
-  .strict();
-
-const ArtifactLockResultSchema = z
-  .object({
-    artifact_id: z.string().trim().min(1).max(256),
-    locked: z.literal(true),
-    locked_by: z.string().trim().min(1).max(256),
-    reason: z.string().trim().min(1).max(4096),
-  })
-  .strict();
-
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   try {
     const params = ParamsSchema.parse(await context.params);
-    const body = LockBodySchema.parse(await request.json());
-    const result = ArtifactLockResultSchema.parse({
+    const body = ArtifactLockBodySchema.parse(await request.json());
+    const result = lockArtifact({
       artifact_id: params.id,
-      locked: true,
       locked_by: body.locked_by,
       reason: body.reason,
     });
