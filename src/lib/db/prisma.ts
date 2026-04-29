@@ -1,15 +1,19 @@
-import { PrismaClient } from '@prisma/client';
+import { z } from 'zod';
 
-const globalForPrisma = globalThis as unknown as {
-  prisma?: PrismaClient;
-};
+export const PrismaClientDescriptorSchema = z
+  .object({
+    provider: z.literal('postgresql'),
+    client: z.literal('prisma-client-js'),
+    runtime: z.literal('descriptor-only'),
+  })
+  .strict();
 
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+export type PrismaClientDescriptor = z.infer<typeof PrismaClientDescriptorSchema>;
+
+export function createPrismaClientDescriptor(): PrismaClientDescriptor {
+  return PrismaClientDescriptorSchema.parse({
+    provider: 'postgresql',
+    client: 'prisma-client-js',
+    runtime: 'descriptor-only',
   });
-
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = prisma;
 }
