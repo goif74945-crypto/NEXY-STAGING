@@ -19,7 +19,7 @@ const releaseStates = [
   },
 ] as const;
 
-export default function ViewPage(): JSX.Element {
+export default function ViewPage() {
   const dashboardRuns = getDashboardRecentRuns();
   const repositoryRuns = listRecentRuns();
   const incidents = getDashboardIncidents();

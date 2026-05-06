@@ -28,7 +28,7 @@ const DEFAULT_SESSIONS: SessionListItem[] = [
 
 export default function SessionListPanel({
   sessions = DEFAULT_SESSIONS,
-}: SessionListPanelProps): JSX.Element {
+}: SessionListPanelProps) {
   return (
     <section
       aria-label="Session list"

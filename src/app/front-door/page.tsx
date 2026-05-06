@@ -12,7 +12,7 @@ const frontDoorChecks = [
   'no-runtime-fetch',
 ] as const;
 
-export default function FrontDoorPage(): JSX.Element {
+export default function FrontDoorPage() {
   const pulse = getDashboardSummary();
   const recentRuns = getDashboardRecentRuns();
   const incidents = getDashboardIncidents();

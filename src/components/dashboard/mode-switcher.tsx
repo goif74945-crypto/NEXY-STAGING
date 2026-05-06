@@ -8,7 +8,7 @@ const MODES: ModeSwitcherMode[] = ['VIEW', 'RUN', 'FORGE'];
 
 export default function ModeSwitcher({
   activeMode = 'VIEW',
-}: ModeSwitcherProps): JSX.Element {
+}: ModeSwitcherProps) {
   return (
     <section
       aria-label="Mode switcher"

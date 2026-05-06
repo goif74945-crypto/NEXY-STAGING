@@ -28,7 +28,7 @@ const DEFAULT_AGENTS: AgentStatusItem[] = [
 
 export default function AgentStatusPanel({
   agents = DEFAULT_AGENTS,
-}: AgentStatusPanelProps): JSX.Element {
+}: AgentStatusPanelProps) {
   return (
     <section
       aria-label="Agent status"

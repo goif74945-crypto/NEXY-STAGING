@@ -18,7 +18,7 @@ const ACTIONS: SessionToolAction[] = [
   },
 ];
 
-export default function SessionTools(): JSX.Element {
+export default function SessionTools() {
   return (
     <section
       aria-label="Session tools"

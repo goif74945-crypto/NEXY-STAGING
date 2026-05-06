@@ -26,7 +26,7 @@ const DEFAULT_INCIDENTS: IncidentListItem[] = [
 
 export default function IncidentListPanel({
   incidents = DEFAULT_INCIDENTS,
-}: IncidentListPanelProps): JSX.Element {
+}: IncidentListPanelProps) {
   return (
     <section
       aria-label="Incident list"

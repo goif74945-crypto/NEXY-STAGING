@@ -63,7 +63,7 @@ test('unfreeze from freeze returns verifying only', () => {
     authority_source: 'RECOVERY_GATE',
     reason_code: 'RECOVERY_APPROVED',
     controlled_at_epoch_ms: 1_700_000_120_000,
-    current_status: frozen.run.status,
+    current_status: 'freeze',
   });
 
   assert.equal(unfrozen.run.status, 'verifying');
@@ -91,7 +91,7 @@ test('kill from freeze returns failed with audit', () => {
     authority_source: 'SECURITY',
     reason_code: 'SECURITY_KILL',
     controlled_at_epoch_ms: 1_700_000_140_000,
-    current_status: frozen.run.status,
+    current_status: 'freeze',
   });
 
   assert.equal(killed.run.status, 'failed');

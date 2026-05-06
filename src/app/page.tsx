@@ -31,7 +31,7 @@ const rootSetStatus = [
   },
 ] as const;
 
-export default function HomePage(): JSX.Element {
+export default function HomePage() {
   const summary = getDashboardSummary();
   const agents = getDashboardAgents();
   const recentRuns = getDashboardRecentRuns();

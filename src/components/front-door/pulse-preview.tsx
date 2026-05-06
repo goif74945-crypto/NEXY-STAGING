@@ -20,7 +20,7 @@ const DEFAULT_PULSE: PulsePreviewMetrics = {
 
 export default function PulsePreview({
   pulse = DEFAULT_PULSE,
-}: PulsePreviewProps): JSX.Element {
+}: PulsePreviewProps) {
   return (
     <section
       aria-label="Front door pulse"

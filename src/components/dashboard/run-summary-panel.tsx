@@ -28,7 +28,7 @@ const DEFAULT_RUNS: RunSummaryItem[] = [
 
 export default function RunSummaryPanel({
   runs = DEFAULT_RUNS,
-}: RunSummaryPanelProps): JSX.Element {
+}: RunSummaryPanelProps) {
   return (
     <section
       aria-label="Run summary"
